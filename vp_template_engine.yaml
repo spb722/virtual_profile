@@ -1,0 +1,646 @@
+# =============================================================================
+# Virtual Profile Rule Engine — Configurable Template Engine
+# =============================================================================
+# Derived from: RE_VIRTUAL_PROFILE_DESCRIPTION_202603041442.json
+# Total templates: 14  (Track 1: 4 | Track 2: 2 | Track 3: 2 | Track 4: 2 | Track 5: 2 + 2 bonus)
+#
+# Template variables:
+#   {date_col}      → event date column name   e.g. COMMON_Event_Date
+#   {kpi_col}       → KPI column name          e.g. COMMON_Total_Revenue
+#   {vp_name}       → Virtual Profile name     e.g. AVG_RECHARGE_LAST3MONTHS
+#   {agg}           → Aggregation function     e.g. SUM, COUNT_ALL, MAX
+#   {N}             → Numeric time value       e.g. 3, 30, 90
+#   {unit}          → Time unit                e.g. DAYS, MONTHS
+#   {week_start}    → Rolling week start day   e.g. 8 (for W2)
+#   {week_end}      → Rolling week end day     e.g. 14 (for W2)
+#   {formula}       → Virtual KPI formula      e.g. col1+col2 or col/3
+#   {filter_col}    → Dimension filter column  e.g. dpi_app_usage_protocol
+#   {filter_val}    → Dimension filter value   e.g. Streaming
+#   ${operator}     → Runtime comparison op    e.g. >, <, =, >=
+#   ${value}        → Runtime threshold value  e.g. 500
+# =============================================================================
+
+
+# =============================================================================
+# TRACK 1 — TIME SERIES METRICS
+# =============================================================================
+
+track_1:
+
+  # ---------------------------------------------------------------------------
+  # Template 1.1 — Rolling Week
+  # Use when: "rolling week 1/2/3/4/5/6/7/8", "week N of the month"
+  #
+  # W1 rolling week offsets table:
+  #   W1: start=0  end=7    → >= CurrentTime-7DAYS  AND < CurrentTime
+  #   W2: start=8  end=14   → >= CurrentTime-8DAYS  AND <= CurrentTime-14DAYS
+  #   W3: start=15 end=21
+  #   W4: start=22 end=28
+  #   W5: start=29 end=35
+  #   W6: start=36 end=42
+  #   W7: start=43 end=49
+  #   W8: start=50 end=56
+  #
+  # Real examples: Rolling_W1_Data_Revenue, Rolling_W5_OG_Sms_Revenue
+  # ---------------------------------------------------------------------------
+  rolling_week:
+    description: "Time-series metric aggregated over a specific rolling week window"
+    # W1 uses a different pattern (< CurrentTime instead of <=)
+    template_w1: >
+      {date_col} >= CurrentTime-7DAYS AND {date_col} < CurrentTime
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # W2-W8 use start/end day offsets
+    template_w2_plus: >
+      {date_col} >= CurrentTime-{week_start}DAYS
+      AND {date_col} <= CurrentTime-{week_end}DAYS
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # When KPI is a computed virtual formula (e.g. col1+col2)
+    template_w1_virtual: >
+      {date_col} >= CurrentTime-7DAYS AND {date_col} < CurrentTime
+      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+    template_w2_plus_virtual: >
+      {date_col} >= CurrentTime-{week_start}DAYS
+      AND {date_col} <= CurrentTime-{week_end}DAYS
+      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+    week_offsets:
+      W1:  { start: 0,  end: 7  }
+      W2:  { start: 8,  end: 14 }
+      W3:  { start: 15, end: 21 }
+      W4:  { start: 22, end: 28 }
+      W5:  { start: 29, end: 35 }
+      W6:  { start: 36, end: 42 }
+      W7:  { start: 43, end: 49 }
+      W8:  { start: 50, end: 56 }
+
+  # ---------------------------------------------------------------------------
+  # Template 1.2 — Fixed Month
+  # Use when: "month 1 ago", "month 2", "M1/M2/M3..M12", "two months ago"
+  # Operator: = (exact month match, not a range)
+  #
+  # Real examples: M1_Total_Prepay_Revenue, M2_OG_Call_Revenue, M3_Data_Volume
+  # ---------------------------------------------------------------------------
+  fixed_month:
+    description: "Time-series metric for a specific completed calendar month"
+    template: >
+      {date_col} = CurrentMonth-{N}MONTHS
+      AND {agg}({kpi_col}) ${operator} ${value}
+    template_virtual: >
+      {date_col} = CurrentMonth-{N}MONTHS
+      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+    # Optional: add dimension filter (e.g. for DPI protocol filtering)
+    template_with_filter: >
+      {date_col} = CurrentMonth-{N}MONTHS
+      AND {filter_col} = {filter_val}
+      AND {agg}({kpi_col}) ${operator} ${value}
+
+  # ---------------------------------------------------------------------------
+  # Template 1.3 — Last N (Days or Months from current time)
+  # Use when: "last 30 days", "last 90 days", "previous N days",
+  #           "over the last 3 completed months" (AVG formula)
+  #
+  # Sub-variants:
+  #   last_n_days_open:   no upper bound  → >= CurrentTime-NDAYS
+  #   last_n_days_closed: explicit range  → >= CurrentTime-NDAYS AND < CurrentTime
+  #   last_n_months_avg:  AVG across N months using V{name}=f{col/N} formula
+  #
+  # Real examples: Last30Days_Data_Revenue, AVG_ARPU_LAST3MONTHS,
+  #                Last15Days_OG_Call_Revenue, Last_20Days_Recharge_Rev
+  # ---------------------------------------------------------------------------
+  last_n:
+    description: "Time-series metric over last N days or last N completed months"
+    # Open range — most common (>= only, no upper bound)
+    template_days_open: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # Closed range — explicit upper bound
+    template_days_closed: >
+      {date_col} >= CurrentTime-{N}DAYS AND {date_col} < CurrentTime
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # Last N completed months with AVG formula (e.g. AVG_ARPU_LAST3MONTHS)
+    template_months_avg: >
+      {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
+      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+    # With dimension filter (e.g. dpi protocol)
+    template_days_with_filter: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {filter_col} = {filter_val}
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # No date filter at all — bare SUM with null guard
+    template_no_date: >
+      {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+    # No date filter, multi-column virtual KPI
+    template_no_date_virtual: >
+      {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+
+  # ---------------------------------------------------------------------------
+  # Template 1.4 — MTD / LMTD
+  # Use when: "month to date", "current month", "this month",
+  #           "last month to date", "same period last month"
+  #
+  # MTD:  date = CurrentMonth (exact equality — current month)
+  # LMTD: date >= CurrentMonth-1MONTHS (from last month start to today)
+  #
+  # Real examples: MTD_Total_Prepay_Revenue, MTD_Data_Revenue,
+  #                LMTD_OG_Call_Revenue, LMTD_Prepay_Voice_Revenue
+  # ---------------------------------------------------------------------------
+  mtd_lmtd:
+    description: "Month-to-date or last-month-to-date aggregated metric"
+    template_mtd: >
+      {date_col} = CurrentMonth
+      AND {agg}({kpi_col}) ${operator} ${value}
+    template_lmtd: >
+      {date_col} >= CurrentMonth-1MONTHS
+      AND {agg}({kpi_col}) ${operator} ${value}
+    template_mtd_with_filter: >
+      {date_col} = CurrentMonth
+      AND {filter_col} = {filter_val}
+      AND {agg}({kpi_col}) ${operator} ${value}
+
+
+# =============================================================================
+# TRACK 2 — STATIC FLAGS & ATTRIBUTES
+# =============================================================================
+
+track_2:
+
+  # ---------------------------------------------------------------------------
+  # Template 2.1 — Subscription Check
+  # Use when: "subscribed to product", "not subscribed", "product exists",
+  #           "product purchased in last N days", "addon active/inactive"
+  #
+  # subscribed:     COUNT > 0  (product exists for this subscriber)
+  # not_subscribed: COUNT = 0  (product does NOT exist)
+  # threshold:      COUNT <= N (subscriber has at most N subscriptions)
+  #
+  # Real examples: PRODUCT_SUBSCRIBED, PRODUCT_NON_SUBSCRIBED,
+  #                CHECK_30_DAYS_SUBSCRIPTION_ZERO, LAST40DAYS_PRODUCTID,
+  #                HBB_Addon_Not_Subsc, HBB_CUST_MISS_PRODUCT
+  # ---------------------------------------------------------------------------
+  subscription:
+    description: "Checks whether a subscriber has or doesn't have a given product/plan"
+    # Currently subscribed (active product)
+    template_subscribed: >
+      {id_col} <> NULL AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) > 0
+    # Not subscribed (product absent)
+    template_not_subscribed: >
+      {id_col} <> NULL AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) = 0
+    # Subscribed within last N days
+    template_subscribed_within_n_days: >
+      {date_col} >= CurrentTime-{N}DAYS AND {id_col} <> NULL
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) > 0
+    # Not subscribed in last N days
+    template_not_subscribed_within_n_days: >
+      {date_col} >= CurrentTime-{N}DAYS AND {id_col} <> NULL
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) = 0
+    # Count at most N subscriptions (threshold check)
+    template_subscription_threshold: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) <= {threshold}
+
+  # ---------------------------------------------------------------------------
+  # Template 2.2 — Flag / Existence Check
+  # Use when: "flag exists", "attribute not null", "plan is available",
+  #           "best plan exists", "segment type = X", "status = Active",
+  #           "audience segment check", "action key sent", "whitelist check"
+  #
+  # Sub-variants cover: null guards, status equality, count-based flag,
+  #                     multi-OR null checks, whitelist/schedule ID
+  #
+  # Real examples: NBO_PRODUCT_ID, PREPAID_MIGRATION_NBP_NOTNULL,
+  #                AUDIENCE_SEGMENT_NAME, PDC_Status_not_Active,
+  #                UTG_Seg_Type_VP, WHITELIST_MSISDN_VP, I_WHITELIST_VP,
+  #                COUNT_OF_ACTION_KEY, NATIVE_SENT_CNT, BILL_PAID_CUSTOMER_VP
+  # ---------------------------------------------------------------------------
+  flag_check:
+    description: "Boolean flag, existence check, segment membership, or status validation"
+    # Generic null/not-null existence flag
+    template_exists: >
+      {flag_col} <> NULL
+    # Flag does not exist (null)
+    template_not_exists: >
+      {flag_col} = NULL
+    # Attribute not null with operator/value comparison
+    template_attr_check: >
+      {flag_col} <> NULL AND {flag_col} ${operator} ${value}
+    # Count-based flag (record present = COUNT > 0)
+    template_count_flag_present: >
+      {flag_col} <> NULL AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Count-based flag (record absent = COUNT = 0)
+    template_count_flag_absent: >
+      {flag_col} <> NULL AND COUNT_ALL({count_col}) = 0
+    # Segment/type equality check with count
+    template_segment_type: >
+      {segment_col} = '{segment_val}' AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Audience segment with execution counter
+    template_audience_segment: >
+      ( {segment_id_col} ${operator} ${value}
+        AND {execution_counter_col} = ${SEGMENT_EXECUTION_COUNTER} )
+    # Multi-OR null check (e.g. PREPAID_MIGRATION_NBP_NOTNULL)
+    template_multi_or_notnull: >
+      {col_1} <> NULL OR {col_2} <> NULL OR {col_3} <> NULL
+    # Schedule/whitelist ID match
+    template_whitelist: >
+      {rule_id_col} = ${SCHEDULE_ID}
+    # Status equality with count = 0 (e.g. PDC_Status_not_Active)
+    template_status_count_zero: >
+      {status_col} = '{status_val}' AND COUNT_ALL({count_col}) = 0
+
+
+# =============================================================================
+# TRACK 3 — SNAPSHOTS & LATEST VALUES
+# =============================================================================
+
+track_3:
+
+  # ---------------------------------------------------------------------------
+  # Template 3.1 — Snapshot by External ID
+  # Use when: "latest ID", "max ID", "inactivation date of addon",
+  #           "most recent record for this account", "last activation date"
+  #
+  # These profiles join on a runtime external ID (e.g. $HBBID, $HBB_ID)
+  # and retrieve the current/latest attribute value.
+  #
+  # Real examples: HBB_LATEST_ID_CHECK, LATEST_ID_CHECK,
+  #                HBB_MAX_ID_CHECK, MAX_ID_CHECK, HBB_Addon_Subs_Cnt
+  # ---------------------------------------------------------------------------
+  snapshot_id:
+    description: "Point-in-time snapshot retrieved by matching an external runtime ID"
+    # Latest value by external ID lookup
+    template_by_id: >
+      {id_col} = ${EXTERNAL_ID}
+      AND {value_col} ${operator} ${value}
+    # Max value check (e.g. MAX(HBBID))
+    template_max_check: >
+      {id_col} ${operator} ${value}
+      AND {ref_col} <> NULL AND MAX({ref_col}) <> NULL
+    # Snapshot with date boundary (e.g. HBB_Addon_Subs_Cnt: act_date = CurrentTime-1DAY)
+    template_by_date_boundary: >
+      {date_col} = CurrentTime-{N}DAYS
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({count_col}) = 0
+
+  # ---------------------------------------------------------------------------
+  # Template 3.2 — Geo Location Snapshot
+  # Use when: "geo location", "region", "current location", "last known location",
+  #           "geographic presence in last N days"
+  #
+  # Real examples: GEO_LOCATION, GEO_LOCATION_30_DAYS
+  # ---------------------------------------------------------------------------
+  geo_location:
+    description: "Checks subscriber's geographic location (current or within N days)"
+    # Current location: lat/long not null then name check
+    template_current: >
+      {lon_col} <> NULL AND {lat_col} <> NULL
+      AND {geo_name_col} ${operator} ${value}
+    # Location within last N days (from DPI geo data)
+    template_last_n_days: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {region_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) >= 1
+
+
+# =============================================================================
+# TRACK 4 — COMPARATIVE COMPUTATIONS
+# =============================================================================
+
+track_4:
+
+  # ---------------------------------------------------------------------------
+  # Template 4.1 — Percentage Drop / Change
+  # Use when: "percentage drop", "% decline", "revenue fell by %",
+  #           "month-over-month change", "M2 vs M1 drop"
+  #
+  # These are COMPOSITE VPs — {vp_a} and {vp_b} are themselves
+  # Track 1 VP names that must be resolved first.
+  #
+  # Formula: (VP_B - VP_A) / VP_A * 100  (drop = VP_B < VP_A)
+  #
+  # Real examples: M2_TOTAL_REVENUE_M1_TOTAL_REVENUE_PCT_DROP,
+  #                M3_TOTAL_REVENUE_M2_TOTAL_REVENUE_PCT_DROP,
+  #                M2_VOICE_REV_M1_VOICE_REV_PCT_DROP,
+  #                M2_DATA_REVENUE_M1_DATA_REVENUE_PCT_DROP
+  # ---------------------------------------------------------------------------
+  pct_drop:
+    description: "Percentage change/drop between two VP values (composite)"
+    is_composite: true
+    # Standard percentage drop formula
+    template: >
+      ({vp_b} - {vp_a}) / {vp_a} * 100 ${operator} ${value}
+    # Note: vp_a = base (earlier period), vp_b = comparison (later period)
+    # The actual rule_engine currently exposes these as SUM(Total_Revenue) placeholders
+    # and computes the ratio at query time. Example from real data:
+    # SUM(COMMON_Total_Revenue) ${operator} ${value}
+    # (The PCT_DROP logic is baked into the named VP pair resolution)
+    operand_resolution:
+      vp_a: "Resolve as Track 1 Fixed Month VP for earlier period"
+      vp_b: "Resolve as Track 1 Fixed Month VP for later period"
+
+  # ---------------------------------------------------------------------------
+  # Template 4.2 — Ratio / Share
+  # Use when: "ratio of X to Y", "X as % of total", "share of X within Y",
+  #           "YouTube percentage of streaming", "data usage share"
+  #
+  # These are COMPOSITE VPs — {vp_numerator} and {vp_denominator} are
+  # themselves resolvable Track 1 or Track 3 VPs.
+  #
+  # Real examples: dpi_yt_percent_month, dpi_yt_percent_streaming
+  # ---------------------------------------------------------------------------
+  ratio:
+    description: "Ratio or percentage share of one VP relative to another (composite)"
+    is_composite: true
+    template: >
+      ({vp_numerator} / {vp_denominator}) * 100 ${operator} ${value}
+    operand_resolution:
+      vp_numerator: "Resolve as Track 1 MTD or snapshot VP (e.g. dpi_yt_usage_month)"
+      vp_denominator: "Resolve as Track 1 MTD or snapshot VP (e.g. dpi_total_usage_month)"
+
+
+# =============================================================================
+# TRACK 5 — PARAMETERIZED / DYNAMIC TEMPLATES
+# =============================================================================
+
+track_5:
+
+  # ---------------------------------------------------------------------------
+  # Template 5.1 — Dynamic Time Window
+  # Use when: "last X days", "last N months", "within specified period",
+  #           "over the given number of days", "parameterized window"
+  #
+  # The ${X} or ${NoOfDays} placeholder is injected at rule-creation time.
+  # May use SUM or COUNT_ALL depending on KPI type.
+  #
+  # Real examples: BILLEVENT_${X}_DAYS, BILLEVENT_${X}_DAYS_VP,
+  #                BILLPAID_${X}_DAYS, SUM_${X}_DAYS_RECHARGE_REV,
+  #                SUM_${X}_DAYS_TOTAL_REV, LAST_${X}DAYS_SM_VOL_SUM,
+  #                SMVolumeSum_Lst${X}Days, LST_${X}_DAYS_IBP_CALL_COUNT,
+  #                CHECK_${X}_DAYS_SUBSCRIPTION_GREATER_ZERO
+  # ---------------------------------------------------------------------------
+  dynamic_window:
+    description: "Metric over a user-supplied time window (X days/months at runtime)"
+    # Simple SUM over last X days
+    template_sum: >
+      {date_col} >= CurrentTime-${X}DAYS
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # COUNT over last X days
+    template_count: >
+      {date_col} >= CurrentTime-${X}DAYS
+      AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Virtual/computed KPI sum over last X days
+    template_virtual_sum: >
+      {date_col} >= CurrentTime-${X}DAYS
+      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+    # Subscription check over last X days (count = 0 or > 0)
+    template_subscription_x_days_present: >
+      {date_col} >= CurrentTime-${X}DAYS
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) > 0
+    template_subscription_x_days_absent: >
+      {date_col} >= CurrentTime-${X}DAYS
+      AND {id_col} ${operator} ${value}
+      AND COUNT_ALL({id_col}) = 0
+    # Multi-parameter: days=${NoOfDays}, threshold=${NoOfBonus}
+    template_multi_param: >
+      {date_col} >= CurrentTime-${NoOfDays}DAYS
+      AND {key_col} ${operator} ${value}
+      AND COUNT_ALL({count_col}) < ${NoOfBonus}
+
+  # ---------------------------------------------------------------------------
+  # Template 5.2 — Campaign / Promo / Bonus Action Check
+  # Use when: "not received campaign in last X days",
+  #           "promotion delivered in last N days",
+  #           "bonus not sent to action key",
+  #           "non-responder to campaign segment"
+  #
+  # These use action type filtering (IN LIST) and groupby count patterns.
+  # The action_type is either BONUS or PROMOTION (and case variants).
+  #
+  # Real examples: CHECK_BONUS_LAST_${X}_DAYS, CHECK_PROMO_LAST_${X}_DAYS,
+  #                LC_NONDELIVERED_LAST_${X}_DAYS, LC_NONRESPONDER_LAST_${X}_DAYS,
+  #                LC_DELIVERED_LAST_${X}_DAYS, LC_NONRESPONDER_ACTIONKEY_LAST_${X}_DAYS
+  # ---------------------------------------------------------------------------
+  campaign_check:
+    description: "Checks campaign/promo/bonus delivery or response history for action key or segment"
+    # Bonus NOT sent for action key in last X days
+    template_bonus_not_sent_ak: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_key_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) < 1
+    # Promo SENT for action key in last X days (with groupby)
+    template_promo_sent_ak: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_key_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col})__groupby_{action_key_col} > 0
+      AND Max({sent_date_col}) <> NULL
+    # Promotion DELIVERED to segment in last X days
+    template_promo_delivered_segment: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_type_col} IN LIST (Promotion;PROMOTION;promotion)
+      AND {action_key_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) > 0
+    # Promotion NOT delivered to segment in last X days
+    template_promo_not_delivered_segment: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_type_col} IN LIST (Promotion;PROMOTION;promotion)
+      AND {segment_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) = 0
+    # Bonus NOT delivered to segment in last X days
+    template_bonus_not_delivered_segment: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_type_col} IN LIST (BONUS;Bonus;bonus)
+      AND {segment_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) = 0
+    # Bonus nonresponder for action key in last X days
+    template_bonus_nonresponder_ak: >
+      {sent_date_col} >= CurrentTime-${X}DAYS
+      AND {action_type_col} IN LIST (BONUS;Bonus;bonus)
+      AND {action_key_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) = 0
+
+
+# =============================================================================
+# COLUMN METADATA LOOKUP
+# Reference: maps logical table names to actual date/KPI columns
+# =============================================================================
+
+column_metadata:
+
+  COMMON_Seg_Fct:
+    date_col: COMMON_Event_Date
+    kpi_examples:
+      - COMMON_Total_Revenue
+      - COMMON_Data_Revenue
+      - COMMON_Data_Volume
+      - COMMON_OG_Call_Revenue
+      - COMMON_OG_Sms_Revenue
+      - COMMON_OG_IDD_Call_Revenue
+      - COMMON_OG_Roam_Call_Revenue
+      - COMMON_Prepay_Voice_Revenue
+      - COMMON_Prepay_Data_Revenue
+      - COMMON_Prepay_Sms_Revenue
+      - COMMON_Prepay_Vas_Revenue
+      - COMMON_Prepay_Product_Revenue
+      - COMMON_Prepay_Gft_Revenue
+      - COMMON_Prepay_Mt_Revenue
+      - COMMON_Prepay_Omip_Revenue
+      - Common_OG_Call_MOU
+      - Common_IC_Call_MOU
+      - COMMON_Data_Bundle_Volume
+      - COMMON_Data_Free_Volume
+      - COMMON_Data_PayG_Volume
+      - COMMON_STREAMING_VOLUME
+      - COMMON_WHATSAPP_VOLUME
+      - COMMON_TIKTOK_VOLUME
+      - COMMON_FACEBOOK_VOLUME
+      - COMMON_INSTAGRAM_VOLUME
+
+  Recharge_Seg_Fact:
+    date_col: RECHARGE_Event_Date
+    kpi_examples:
+      - RECHARGE_Denomination
+
+  DPI_App_Usage:
+    date_col: dpi_app_usage_event_date
+    kpi_examples:
+      - dpi_app_usage_usage
+    filter_columns:
+      - dpi_app_usage_protocol    # e.g. Streaming
+      - dpi_app_usage_subport     # e.g. YouTube
+
+  DPI_Geo_Location:
+    date_col: dpi_geo_location_event_date
+    kpi_examples:
+      - dpi_geo_location_region
+      - GEO_LOCATION_MSISDN
+
+  Subscriptions:
+    date_col: SUBSCRIPTIONS_EVENT_DATE
+    kpi_examples:
+      - SUBSCRIPTIONS_Product_Id
+      - SUBSCRIPTIONS_MSISDN
+
+  BILL_PAYMENT:
+    date_col: BILL_PAYMENT_SUMAMRY_DATE
+    kpi_examples:
+      - BILL_PAYMENT_SUMMARY_AMOUNT
+
+  BILL_EVENT:
+    date_col: BILL_PAID_EVENT_DATE
+    kpi_examples:
+      - BILL_IS_PAID_MSISDN_PRO
+      - BILL_IS_PAID_MSISDN_PROFILE
+
+  LIFECYCLE_PROMO:
+    date_col: L_PROMO_SENT_DATE
+    kpi_examples:
+      - L_ACTION_KEY
+      - L_AGG_MSISDN
+      - L_AGG_CNT
+      - LC_SEGMENT_NAME
+      - LC_ACTION_TYPE
+
+  LIFECYCLE_BONUS:
+    date_col: L_BONUS_SENT_DATE
+    kpi_examples:
+      - L_ACTION_KEY
+      - L_AGG_MSISDN
+      - L_BONUS_ACTION_KEY
+  LIFECYCLE_CDR:
+    date_col: L_SENT_DATE
+  MANUAL_SEGMENT_GROUP:
+    date_col: null
+  AUDIENCE_SEGMENT_CDR:
+    date_col: null
+  Profile_Cdr_group:
+    date_col: PROFILE_CURRENT_PLAN_ACT_DATE
+  Instant_cdr_group:
+    date_col: FCT_DT
+  CAMPAIGN_WHITELIST:
+    date_col: null
+  360_PROFILE:
+    date_col: CUST_360_EVENT_DATE
+  
+
+  REDEEMED_POINTS:
+    date_col: REDEEMED_CREATE_DATE
+    kpi_examples:
+      - REDEEMED_REDEEM_POINTS
+
+  HBB:
+    date_col: HBB_AddOn_Act_Date
+    kpi_examples:
+      - HBB_Fixed_Line_NRP
+      - HBB_AddOn_Comp_Id
+      - HBBID
+      - HBB_ID
+      - HBB_AddOn_Inact_Date
+
+  GEO_LOCATION_STATIC:
+    date_col: null
+    kpi_examples:
+      - LOCATION_LONGITUDE
+      - LOCATION_LATITUDE
+      - GEO_LOCATION_NAME
+
+  AUDIENCE_SEGMENT:
+    date_col: null
+    kpi_examples:
+      - AS_SEGMENT_ID
+      - AS_EXECUTION_COUNTER
+
+
+# =============================================================================
+# TEMPLATE SELECTION DECISION TREE
+# Quick reference for the template engine routing logic
+# =============================================================================
+
+routing_guide:
+  - condition: "VP name contains Rolling_W{N}"
+    template: track_1.rolling_week
+    note: "Use week_offsets lookup for start/end day values"
+
+  - condition: "VP name starts with M{N}_ (M1, M2 ... M12)"
+    template: track_1.fixed_month
+    note: "N = month offset from CurrentMonth"
+
+  - condition: "VP name starts with MTD_"
+    template: track_1.mtd_lmtd
+    variant: template_mtd
+
+  - condition: "VP name starts with LMTD_"
+    template: track_1.mtd_lmtd
+    variant: template_lmtd
+
+  - condition: "VP name contains Last{N}Days or SUM_{N}_DAYS or AVG_..._LAST{N}MONTHS"
+    template: track_1.last_n
+    note: "Use template_months_avg if VP name contains AVG and time unit is MONTHS"
+
+  - condition: "VP name contains PCT_DROP"
+    template: track_4.pct_drop
+    note: "Composite — resolve both operand VPs first"
+
+  - condition: "VP name contains _percent_ or ratio"
+    template: track_4.ratio
+    note: "Composite — resolve numerator and denominator VPs"
+
+  - condition: "VP name contains SUBSCRIBED or NON_SUBSCRIBED or CHECK_{N}_DAYS_SUBSCRIPTION"
+    template: track_2.subscription
+
+  - condition: "VP name contains SEGMENT, FLAG, STATUS, WHITELIST, NBO, MIGRATION"
+    template: track_2.flag_check
+
+  - condition: "VP name contains LATEST_ID or MAX_ID or SNAPSHOT"
+    template: track_3.snapshot_id
+
+  - condition: "VP name contains GEO_LOCATION"
+    template: track_3.geo_location
+
+  - condition: "VP name contains ${X} or ${NoOfDays} and NO action type"
+    template: track_5.dynamic_window
+
+  - condition: "VP name contains ${X} or ${NoOfDays} and HAS action type (BONUS/PROMO)"
+    template: track_5.campaign_check
