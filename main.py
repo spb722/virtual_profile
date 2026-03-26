@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from kpi_mapper import KPIResolutionError
 from registry import VPRegistry
 from resolver import resolve, ResolveResult
 
@@ -144,6 +145,9 @@ def resolve_condition(request: ResolveRequest) -> ResolveResponse:
         result: ResolveResult = resolve(condition, registry, depth=0)
     except RecursionError as e:
         logger.error("Recursion limit hit: %s", e)
+        raise HTTPException(status_code=422, detail=str(e))
+    except KPIResolutionError as e:
+        logger.error("KPI resolution failed: %s", e)
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception("Unexpected error during resolution.")
