@@ -3,13 +3,22 @@ agents.py
 ---------
 All 6 agent prompts (system/user split), Pydantic output schemas,
 LLM call utility, and per-track caller functions.
+
+FIX 1 CHANGES:
+  - Track2Output: added groupby_entity field
+  - Track5Output: added groupby_entity field
+  - TRACK2_SYSTEM: added groupby detection rules
+  - TRACK5_SYSTEM: added groupby detection rules
 """
 
 import logging
 import os
-from typing import Optional, Any, Type
+from typing import Optional, Any, Type, Literal, List
 from pydantic import BaseModel
 from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -40,20 +49,30 @@ class TimeWindow(BaseModel):
 
 
 class Track1Output(BaseModel):
-    track:        int
-    kpi:          str
-    aggregation:  str
-    time_window:  TimeWindow
-    is_composite: bool
+    track:         int
+    kpi:           str
+    aggregation:   str
+    time_window:   TimeWindow
+    is_composite:  bool
+    filter_col:    Optional[str]       = None
+    filter_values: Optional[List[str]] = None
+
+
+class Track2TimeConstraint(BaseModel):
+    type:  Literal["TODAY", "LAST_N_DAYS", "LAST_N_MONTHS", "THIS_MONTH"]
+    value: Optional[int] = None   # None for TODAY / THIS_MONTH
 
 
 class Track2Output(BaseModel):
-    track:          int
-    kpi:            str
-    expected_state: str
-    aggregation:    None = None
-    time_window:    None = None
-    is_composite:   bool
+    track:           int
+    kpi:             str
+    expected_state:  str
+    aggregation:     None = None
+    time_window:     None = None
+    time_constraint: Optional[Track2TimeConstraint] = None
+    is_composite:    bool
+    # ── FIX 1: groupby support ────────────────────────────────────────────
+    groupby_entity:  Optional[str] = None   # "subscriber", "device", "product", "product_description"
 
 
 class Track3Output(BaseModel):
@@ -84,6 +103,8 @@ class Track5Output(BaseModel):
     parameter_unit:        Optional[str] = None
     parameter_description: str
     is_composite:          bool
+    # ── FIX 1: groupby support ────────────────────────────────────────────
+    groupby_entity:        Optional[str] = None   # "subscriber", "action_date", "device", "product"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +115,7 @@ CLASSIFIER_SYSTEM = """You are a classification agent for a telecom rule engine 
 Your job is to read a natural language description of a KPI or condition and classify it into exactly one of the following tracks:
 
 - Track 1: TIME_SERIES — A metric aggregated (SUM, AVG, COUNT) over a time window: rolling weeks, specific months (M1/M2/M3), last N days, MTD, LMTD.
-- Track 2: STATIC_FLAG — A dimensional state, boolean flag, subscription status, or segment attribute. No time window, no aggregation.
+- Track 2: STATIC_FLAG — A dimensional state, boolean flag, subscription status, segment attribute, OR count-based existence/absence check. Includes: "count of X is zero", "count of X grouped by Y", "X not sent per subscriber", "flag exists/not exists", "count per device/product". No time-series aggregation over a sliding window.
 - Track 3: SNAPSHOT — A single point-in-time value. Most recent, latest, or current record. No accumulation over a period.
 - Track 4: COMPARATIVE — Compares a KPI against itself over two periods, or two different KPIs (percentage change, ratio, drop, growth).
 - Track 5: PARAMETERIZED — Time window or product/plan is not fixed; will be supplied at runtime (e.g. "last N days", "specified product").
@@ -107,6 +128,8 @@ Rules:
 5. Variable placeholders like "N days", "specified", "given", "any" → Track 5.
 6. Doubt between Track 1 and Track 3: "total/sum/average/count" implied → Track 1. "latest/current value/last known/as of now" → Track 3.
 7. Doubt between Track 1 and Track 4: two time periods compared, or drop/growth/ratio → Track 4.
+8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (these are existence/absence checks expressed through counts, not time-series aggregations).
+9. "X not triggered/sent per subscriber", "X per device", or "no record per entity" → Track 2 (per-entity presence checks are flags, not time-series).
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -122,11 +145,13 @@ You will receive a natural language description already classified as Track 1: T
 
 Fields to extract:
 - kpi: core metric (e.g. "total revenue", "recharge amount", "data volume", "og call revenue")
-- aggregation: AVG | SUM | COUNT | MAX | MIN  (infer: "total"→SUM, "average"→AVG, "number of"→COUNT)
+- aggregation: AVG | SUM | COUNT | COUNT_ALL | MAX | MIN  (infer: "total"→SUM, "average"→AVG, "number of"→COUNT, "count all"→COUNT_ALL)
 - time_window.type: ROLLING_WEEK | FIXED_MONTH | LAST_N | MTD | LMTD
 - time_window.value: numeric value (null for MTD/LMTD)
 - time_window.unit: DAY | WEEK | MONTH (null for MTD/LMTD)
 - is_composite: false
+- filter_col: column being filtered (natural language, e.g. "refill ID", "action key") — null if no list filter
+- filter_values: list of specific allowed values (e.g. ["MD03", "M138"]) — null if no list filter
 
 Rules:
 1. Never guess table or column names — leave those to downstream.
@@ -137,6 +162,11 @@ Rules:
 6. "Last 3 months" (without comparison) → LAST_N value=3 unit=MONTH.
 7. "Month to date" / "this month" → MTD value=null unit=null.
 8. "Last month to date" / "same period last month" → LMTD value=null unit=null.
+9. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Use COUNT_ALL as the aggregation when a list filter is present. If no such multi-value filter is mentioned, leave both fields as null.
+   Examples:
+   - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"]
+   - "bonus sent for action keys HBB_key, PROMO_key" → filter_col: "action key", filter_values: ["HBB_key", "PROMO_key"]
+   - "total revenue last 30 days" → filter_col: null, filter_values: null
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -144,7 +174,9 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
   "kpi": "<kpi>",
   "aggregation": "<AGG>",
   "time_window": {"type": "<TYPE>", "value": <number|null>, "unit": "<UNIT|null>"},
-  "is_composite": false
+  "is_composite": false,
+  "filter_col": null,
+  "filter_values": null
 }"""
 
 
@@ -157,6 +189,7 @@ Fields to extract:
 - aggregation: null (always)
 - time_window: null (always)
 - is_composite: false
+- groupby_entity: the entity to group the count by — see Groupby Detection below
 
 Rules:
 1. No time window extraction.
@@ -164,6 +197,26 @@ Rules:
 3. "Segment name" type descriptions → expected_state = ASSIGNED.
 4. "Next best offer exists" → expected_state = EXISTS.
 5. "Not subscribed to product" → expected_state = NOT_SUBSCRIBED.
+6. If the condition mentions a time constraint like 'today', 'last N days', 'last N months', or 'this month', extract it into the time_constraint field. If no time constraint is mentioned, leave it as null.
+
+## Groupby Detection
+
+If the count or check should be scoped per entity (per subscriber, per device, etc.), extract groupby_entity.
+Look for phrases like "per subscriber", "per MSISDN", "unique per", "grouped by", "for each subscriber", "count per device".
+
+Allowed values:
+- "subscriber" — count per subscriber/MSISDN (e.g. "action key count per subscriber", "grouped by MSISDN")
+- "device" — count per device/IMEI (e.g. "per device", "grouped by IMEI")
+- "product" — count per product/refill ID (e.g. "grouped by product", "per refill ID")
+- "product_description" — count per product and description combo (e.g. "grouped by product and description")
+
+If no groupby intent is detected, set groupby_entity to null.
+
+Examples:
+- "Count of action keys sent, grouped by subscriber" → groupby_entity: "subscriber"
+- "Refill type count per product" → groupby_entity: "product"
+- "Action key count per product and description" → groupby_entity: "product_description"
+- "NBO product ID is available" → groupby_entity: null (no grouping)
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -172,7 +225,9 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
   "expected_state": "<STATE>",
   "aggregation": null,
   "time_window": null,
-  "is_composite": false
+  "time_constraint": null,
+  "is_composite": false,
+  "groupby_entity": null
 }"""
 
 
@@ -246,12 +301,31 @@ Fields to extract:
 - parameter_unit: DAY | WEEK | MONTH | PRODUCT | PLAN | null
 - parameter_description: plain English of what the user must supply at rule-creation time
 - is_composite: false
+- groupby_entity: the entity to group the count by — see Groupby Detection below
 
 Rules:
 1. "specified", "given", "any", "N days", "X months", "defined" → indicates a runtime parameter.
 2. Never hardcode a value for the parameter — it must stay as a placeholder.
 3. "Last X days recharge revenue" → parameter_name="X", parameter_unit=DAY.
 4. "Subscriber subscribed to specified product" → parameter_name="PRODUCT_ID", parameter_unit=PRODUCT.
+
+## Groupby Detection
+
+If the count should be scoped per entity, extract groupby_entity.
+Look for phrases like "per subscriber", "grouped by", "unique per", "for each".
+
+Allowed values:
+- "subscriber" — count per subscriber/MSISDN
+- "device" — count per device/IMEI
+- "product" — count per product/refill ID
+- "action_date" — count per action key and sent date combo (e.g. "grouped by action key and date")
+- "product_description" — count per product and description combo
+
+If no groupby intent is detected, set groupby_entity to null.
+
+Examples:
+- "Promo sent for action key in last X days, grouped by action key and date" → groupby_entity: "action_date"
+- "Bonus not sent to action key in last X days" → groupby_entity: null (no grouping)
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -261,7 +335,8 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
   "parameter_name": "<PARAM>",
   "parameter_unit": "<UNIT|null>",
   "parameter_description": "<what the user must supply>",
-  "is_composite": false
+  "is_composite": false,
+  "groupby_entity": null
 }"""
 
 
@@ -291,7 +366,13 @@ def call_llm(system_prompt: str, user_prompt: str, schema_class: Type[BaseModel]
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt}
         ],
-        response_format={"type": "json_object"},
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_class.__name__,
+                "schema": schema_class.model_json_schema()
+            }
+        },
         temperature=0
     )
     raw     = response.choices[0].message.content

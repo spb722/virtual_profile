@@ -6,6 +6,10 @@ Builds track-specific payloads from extracted agent output.
 
 Note: Track 4 never calls this directly —
       it composes its formula from resolved child VP names.
+
+FIX 1 CHANGES:
+  - build_track2_payload: passes groupby_entity through to template engine
+  - build_track5_payload: passes groupby_entity through to template engine
 """
 
 import logging
@@ -74,17 +78,21 @@ def build_track1_payload(extracted: Track1Output) -> dict:
 
 def build_track2_payload(extracted: Track2Output) -> dict:
     """
-    Track 2 static flags don't need a template engine call for most cases.
-    Returns a minimal payload for reference.
+    Track 2 static flags.
+    Now passes through groupby_entity if the agent extracted one.
     """
     kpi_info = resolve_kpi(extracted.kpi)
-    return {
+    payload = {
         "table_name":     kpi_info["table_name"],
         "sub_type":       _map_state_to_subtype(extracted.expected_state),
         "flag_col":       kpi_info["kpi_col"],
         "count_col":      kpi_info["kpi_col"],
         "is_composite":   extracted.is_composite
     }
+    # ── FIX 1: pass groupby_entity if present ─────────────────────────────
+    if extracted.groupby_entity:
+        payload["groupby_entity"] = extracted.groupby_entity
+    return payload
 
 
 def build_track3_payload(extracted: Track3Output) -> dict:
@@ -104,16 +112,20 @@ def build_track3_payload(extracted: Track3Output) -> dict:
 def build_track5_payload(extracted: Track5Output) -> dict:
     """
     Build Track 5 parameterized payload.
-    Always uses sum_x_days as the primary sub_type.
+    Now passes through groupby_entity if the agent extracted one.
     """
     kpi_info = resolve_kpi(extracted.kpi, extracted.aggregation)
-    return {
+    payload = {
         "table_name":  kpi_info["table_name"],
         "sub_type":    "sum_x_days",
         "kpi_col":     kpi_info["kpi_col"],
         "aggregation": extracted.aggregation,
         "is_composite": extracted.is_composite
     }
+    # ── FIX 1: pass groupby_entity if present ─────────────────────────────
+    if extracted.groupby_entity:
+        payload["groupby_entity"] = extracted.groupby_entity
+    return payload
 
 
 # ─────────────────────────────────────────────────────────────────────────────

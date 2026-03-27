@@ -156,6 +156,33 @@ track_1:
       AND {filter_col} = {filter_val}
       AND {agg}({kpi_col}) ${operator} ${value}
 
+  # ---------------------------------------------------------------------------
+  # Template 1.5 — Filtered Count (IN LIST)
+  # Use when: condition includes a list of specific values on any column
+  #           (product IDs, refill IDs, action keys, service types, bundle
+  #           codes, category names, etc.) using IN LIST, combined with
+  #           COUNT_ALL over a date range.
+  #
+  # Two date patterns:
+  #   range:      >= CurrentTime-NDAYS  (e.g. POST_CMB_30D_EXCL_D1)
+  #   exact_date: = CurrentTime-NDAYS   (e.g. POST_CMB_30D_INCL_D1)
+  #
+  # Real examples: POST_CMB_30D_EXCL_D1, POST_DAT_7D_EXCL_D1,
+  #                POST_VOI_30D_INCL_D1, PAYBILL_HVC
+  # ---------------------------------------------------------------------------
+  filtered_count:
+    description: "Count of records matching a list of values on any column within a date window"
+    # Date range (>= only) with IN LIST filter
+    template_range: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {filter_col} IN LIST ({filter_values})
+      AND COUNT_ALL({kpi_col}) ${operator} ${value}
+    # Exact date match (= only) with IN LIST filter
+    template_exact_date: >
+      {date_col} = CurrentTime-{N}DAYS
+      AND {filter_col} IN LIST ({filter_values})
+      AND COUNT_ALL({kpi_col}) ${operator} ${value}
+
 
 # =============================================================================
 # TRACK 2 — STATIC FLAGS & ATTRIBUTES
@@ -249,6 +276,22 @@ track_2:
     # Status equality with count = 0 (e.g. PDC_Status_not_Active)
     template_status_count_zero: >
       {status_col} = '{status_val}' AND COUNT_ALL({count_col}) = 0
+    # Count-based flag present within last N days
+    template_count_flag_present_within_n_days: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {flag_col} <> NULL AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Count-based flag present today
+    template_count_flag_present_today: >
+      {date_col} = CurrentTime
+      AND {flag_col} <> NULL AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Count-based flag absent within last N days
+    template_count_flag_absent_within_n_days: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {flag_col} <> NULL AND COUNT_ALL({count_col}) = 0
+    # Count-based flag absent today
+    template_count_flag_absent_today: >
+      {date_col} = CurrentTime
+      AND {flag_col} <> NULL AND COUNT_ALL({count_col}) = 0
 
 
 # =============================================================================
@@ -542,6 +585,9 @@ column_metadata:
       - L_AGG_CNT
       - LC_SEGMENT_NAME
       - LC_ACTION_TYPE
+    groupby_mappings:
+      action_date: "L_ACTION_KEY,L_PROMO_SENT_DATE"
+      subscriber: L_AGG_MSISDN
 
   LIFECYCLE_BONUS:
     date_col: L_BONUS_SENT_DATE
@@ -549,12 +595,72 @@ column_metadata:
       - L_ACTION_KEY
       - L_AGG_MSISDN
       - L_BONUS_ACTION_KEY
+    groupby_mappings:
+      subscriber: L_AGG_MSISDN
   LIFECYCLE_CDR:
     date_col: L_SENT_DATE
+    groupby_mappings:
+      subscriber: LC_MSISDN
+      device: L_IMEI
   MANUAL_SEGMENT_GROUP:
     date_col: null
   AUDIENCE_SEGMENT_CDR:
     date_col: null
+
+  AIRTEL_LIFECYCLE_CDR:
+    date_col: LC_SENT_DATE
+    kpi_examples:
+      - LC_ACTION_KEY
+      - LC_MSISDN
+    groupby_mappings:
+      subscriber: LC_MSISDN
+
+  # --- Airtel: Recharge / Refill ---
+  AIRTEL_RECHARGE:
+    date_col: RE_TRANS_DT
+    kpi_examples:
+      - RE_REFILL_ID
+      - RE_REFILL_TYPE
+      - RE_ESB_DESCRIPTION
+      - RE_TRANS_DT
+    groupby_mappings:
+      product: RE_REFILL_ID
+      product_description: "RE_REFILL_ID,RE_ESB_DESCRIPTION"
+
+  # --- Airtel: GASSO (SSO recharge activation) ---
+  GASSO:
+    date_col: GASSO_SENT_DATE
+    kpi_examples:
+      - GASSO_ACTION_KEY
+      - GASSO_SSO_MSISDN
+    groupby_mappings:
+      subscriber: GA_SSO_MSISDN
+
+  # --- Airtel: GA (general recharge activation) ---
+  GA_RECHARGE:
+    date_col: GA_SENT_DATE
+    kpi_examples:
+      - GA_ACTION_KEY
+      - GA_SSO_MSISDN
+    groupby_mappings:
+      subscriber: GA_SSO_MSISDN
+
+  # --- Airtel: IMEI tracking ---
+  IMEI_TABLE:
+    date_col: null
+    kpi_examples:
+      - IMEI_ACTION_KEY
+      - IMEI_NEW
+      - IMEI_NEW_TEMP
+    groupby_mappings:
+      device: IMEI_NEW_TEMP
+
+  # --- Airtel: SDC (device counter) ---
+  SDC_TABLE:
+    date_col: null
+    kpi_examples:
+      - SDC_DEVICE_ID
+      - SDC_BONUS_COUNTER
   Profile_Cdr_group:
     date_col: PROFILE_CURRENT_PLAN_ACT_DATE
   Instant_cdr_group:

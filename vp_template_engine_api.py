@@ -6,18 +6,30 @@ and returns the filled PARENT_CONDITION rule string.
 
 Run:
     pip install fastapi uvicorn pyyaml
-    uvicorn vp_template_engine_api:app --reload --port 8000
+    uvicorn vp_template_engine_api:app --reload --port 9978
 
 POST /resolve  →  returns filled PARENT_CONDITION
 GET  /templates →  lists all template keys
 GET  /health    →  health check
+
+FIX 1 CHANGES:
+  - Track2Input: added groupby_entity field + 5 new sub_types
+  - Track5Input: added groupby_entity field
+  - resolve_groupby_cols(): YAML-based entity → column lookup
+  - _apply_groupby(): regex post-processing for COUNT_ALL
+  - resolve_track2(): handlers for 5 new sub_types
+  - /resolve endpoint: groupby resolution and application
 """
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal, List
+import re
+import logging
 import yaml
 import os
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # App Init + YAML Load
@@ -26,7 +38,7 @@ import os
 app = FastAPI(
     title="VP Rule Engine — Template API",
     description="Resolves track agent JSON into PARENT_CONDITION rule strings",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 YAML_PATH = os.path.join(os.path.dirname(__file__), "vp_template_engine.yaml")
@@ -52,13 +64,11 @@ class Track1Input(BaseModel):
     track: Literal[1]
     table_name: str
     kpi_col: str
-    aggregation: Literal["AVG", "SUM", "COUNT", "MAX", "MIN"]
+    aggregation: Literal["AVG", "SUM", "COUNT", "COUNT_ALL", "MAX", "MIN"]
     time_window: TimeWindow
     is_composite: bool = False
-    # Optional: virtual formula (e.g. "col1+col2" or "col/3")
     formula: Optional[str] = None
     vp_name: Optional[str] = None
-    # Optional: dimension filter (e.g. dpi_app_usage_protocol = Streaming)
     filter_col: Optional[str] = None
     filter_val: Optional[str] = None
 
@@ -81,7 +91,13 @@ class Track2Input(BaseModel):
         "audience_segment",
         "multi_or_notnull",
         "whitelist",
-        "status_count_zero"
+        "status_count_zero",
+        # ── FIX 1: new sub_types ──────────────────────────────────────────
+        "count_groupby_only",            # bare COUNT_ALL, no null guard, no date
+        "count_flag_absent_today",       # date=CurrentTime + null guard + count=0
+        "count_flag_present_today",      # date=CurrentTime + null guard + count>=1
+        "date_value_count",              # date col as ${op} ${val} + COUNT > 0
+        "multi_null_date_value_count"    # multi null guards + date as ${op} ${val} + COUNT > 0
     ]
     id_col: Optional[str] = None
     flag_col: Optional[str] = None
@@ -93,12 +109,17 @@ class Track2Input(BaseModel):
     rule_id_col: Optional[str] = None
     execution_counter_col: Optional[str] = None
     segment_id_col: Optional[str] = None
-    # For multi_or_notnull
     col_list: Optional[List[str]] = None
-    # Time window (for within_n_days and threshold variants)
     N: Optional[int] = None
     threshold: Optional[int] = None
     is_composite: bool = False
+    # ── FIX 1: groupby + extra fields for new sub_types ───────────────────
+    groupby_entity: Optional[str] = None
+    null_guard_col: Optional[str] = None      # single extra null guard col
+    null_col_1: Optional[str] = None          # first null guard col (multi)
+    null_col_2: Optional[str] = None          # second null guard col (multi)
+    count_threshold_op: Optional[str] = None  # "=", ">", ">=", "<"
+    count_threshold_val: Optional[str] = None # "0", "1", "2"
 
 
 class Track3Input(BaseModel):
@@ -127,8 +148,8 @@ class Track3Input(BaseModel):
 class Track4Input(BaseModel):
     track: Literal[4]
     operation: Literal["PERCENTAGE_DROP", "PERCENTAGE_CHANGE", "RATIO", "DIFFERENCE"]
-    vp_a: str       # base VP name (earlier period / denominator)
-    vp_b: str       # comparison VP name (later period / numerator)
+    vp_a: str
+    vp_b: str
     vp_numerator: Optional[str] = None
     vp_denominator: Optional[str] = None
     is_composite: bool = True
@@ -164,6 +185,8 @@ class Track5Input(BaseModel):
     msisdn_col: Optional[str] = None
     aggregation: Optional[Literal["SUM", "COUNT", "AVG", "MAX", "MIN"]] = None
     is_composite: bool = False
+    # ── FIX 1: groupby support ────────────────────────────────────────────
+    groupby_entity: Optional[str] = None
 
 
 # Union input for the single /resolve endpoint
@@ -181,16 +204,13 @@ class ResolveRequest(BaseModel):
 # =============================================================================
 
 def _normalize_identifier(value: str) -> str:
-    """Normalize identifiers for case-insensitive equality checks."""
     return value.strip().lower()
 
 
 def _get_table_meta(table_name: str) -> Optional[dict]:
-    """Resolve table metadata with exact match first, then case-insensitive match."""
     meta = COLUMN_META.get(table_name)
     if meta:
         return meta
-
     normalized = _normalize_identifier(table_name)
     for key, value in COLUMN_META.items():
         if _normalize_identifier(key) == normalized:
@@ -199,7 +219,6 @@ def _get_table_meta(table_name: str) -> Optional[dict]:
 
 
 def get_date_col(table_name: str) -> str:
-    """Resolve date_col from column_metadata using table_name."""
     meta = _get_table_meta(table_name)
     if not meta:
         raise HTTPException(
@@ -213,6 +232,55 @@ def get_date_col(table_name: str) -> str:
             detail=f"Table '{table_name}' has no date_col defined in column_metadata."
         )
     return date_col
+
+
+# =============================================================================
+# FIX 1: Groupby Helpers
+# =============================================================================
+
+def resolve_groupby_cols(table_name: str, groupby_entity: str) -> Optional[str]:
+    """
+    Look up actual column name(s) for a semantic groupby entity.
+    Uses column_metadata.{table}.groupby_mappings in the YAML.
+
+    Returns the column string (e.g. "LC_MSISDN" or "RE_REFILL_ID,RE_ESB_DESCRIPTION")
+    or None if no mapping found.
+    """
+    meta = _get_table_meta(table_name)
+    if not meta:
+        return None
+    mappings = meta.get("groupby_mappings", {})
+    return mappings.get(groupby_entity)
+
+
+def _apply_groupby(condition: str, groupby_cols: str) -> str:
+    """
+    Set __groupby_{cols} on every COUNT_ALL(...) in the condition.
+
+    - If COUNT_ALL has NO __groupby_ yet → append it.
+    - If COUNT_ALL already HAS __groupby_ → replace it (the YAML mapping
+      may specify a wider multi-column groupby than the template default).
+
+    Examples:
+      "COUNT_ALL(LC_ACTION_KEY) = 0"  +  "LC_MSISDN"
+      → "COUNT_ALL(LC_ACTION_KEY)__groupby_LC_MSISDN = 0"
+
+      "COUNT_ALL(L_AGG_MSISDN)__groupby_L_ACTION_KEY > 0"  +  "L_ACTION_KEY,L_PROMO_SENT_DATE"
+      → "COUNT_ALL(L_AGG_MSISDN)__groupby_L_ACTION_KEY,L_PROMO_SENT_DATE > 0"
+    """
+    # First: replace any existing __groupby_XXX with the correct columns
+    condition = re.sub(
+        r'(COUNT_ALL\([^)]+\))__groupby_[A-Za-z0-9_,]+',
+        rf'\1__groupby_{groupby_cols}',
+        condition
+    )
+    # Then: append to any COUNT_ALL that still has no __groupby_
+    condition = re.sub(
+        r'(COUNT_ALL\([^)]+\))(?!__groupby_)',
+        rf'\1__groupby_{groupby_cols}',
+        condition
+    )
+    return condition
 
 
 # =============================================================================
@@ -233,7 +301,6 @@ def resolve_track1(p: Track1Input) -> str:
             raise HTTPException(400, f"No offsets defined for {week_key}")
 
         if tw.value == 1:
-            # W1 special pattern
             if p.formula and p.vp_name:
                 tmpl = rw["template_w1_virtual"]
                 return tmpl.replace("{date_col}", date_col) \
@@ -292,7 +359,6 @@ def resolve_track1(p: Track1Input) -> str:
         ln = t1["last_n"]
         n = str(tw.value)
 
-        # AVG over last N months
         if tw.unit == "MONTH" and p.vp_name:
             tmpl = ln["template_months_avg"]
             return tmpl.replace("{date_col}", date_col) \
@@ -300,7 +366,6 @@ def resolve_track1(p: Track1Input) -> str:
                        .replace("{vp_name}", p.vp_name) \
                        .replace("{kpi_col}", p.kpi_col)
 
-        # No date filter (bare SUM)
         if not date_col or date_col == "null":
             if p.formula and p.vp_name:
                 tmpl = ln["template_no_date_virtual"]
@@ -311,7 +376,6 @@ def resolve_track1(p: Track1Input) -> str:
             return tmpl.replace("{kpi_col}", p.kpi_col) \
                        .replace("{agg}", p.aggregation)
 
-        # With dimension filter
         if p.filter_col and p.filter_val:
             tmpl = ln["template_days_with_filter"]
             return tmpl.replace("{date_col}", date_col) \
@@ -321,14 +385,12 @@ def resolve_track1(p: Track1Input) -> str:
                        .replace("{agg}", p.aggregation) \
                        .replace("{kpi_col}", p.kpi_col)
 
-        # Closed range (explicit upper bound)
         if p.formula and p.vp_name:
             tmpl = ln["template_no_date_virtual"]
             return tmpl.replace("{agg}", p.aggregation) \
                        .replace("{vp_name}", p.vp_name) \
                        .replace("{formula}", p.formula)
 
-        # Default: open range
         tmpl = ln["template_days_open"]
         return tmpl.replace("{date_col}", date_col) \
                    .replace("{N}", n) \
@@ -359,7 +421,6 @@ def resolve_track1(p: Track1Input) -> str:
 
 def resolve_track2(p: Track2Input) -> str:
     t2 = TEMPLATES["track_2"]
-
     sub = p.sub_type
 
     # ── Subscription sub-types ────────────────────────────────────────────────
@@ -370,22 +431,18 @@ def resolve_track2(p: Track2Input) -> str:
 
         if sub == "subscribed":
             return s["template_subscribed"].replace("{id_col}", p.id_col)
-
         if sub == "not_subscribed":
             return s["template_not_subscribed"].replace("{id_col}", p.id_col)
-
         if sub == "subscribed_within_n_days":
             return s["template_subscribed_within_n_days"] \
                     .replace("{date_col}", date_col) \
                     .replace("{N}", str(p.N)) \
                     .replace("{id_col}", p.id_col)
-
         if sub == "not_subscribed_within_n_days":
             return s["template_not_subscribed_within_n_days"] \
                     .replace("{date_col}", date_col) \
                     .replace("{N}", str(p.N)) \
                     .replace("{id_col}", p.id_col)
-
         if sub == "subscription_threshold":
             return s["template_subscription_threshold"] \
                     .replace("{date_col}", date_col) \
@@ -393,48 +450,104 @@ def resolve_track2(p: Track2Input) -> str:
                     .replace("{id_col}", p.id_col) \
                     .replace("{threshold}", str(p.threshold))
 
-    # ── Flag / Existence sub-types ────────────────────────────────────────────
+    # ── FIX 1: New sub_types ──────────────────────────────────────────────────
+
+    # Bare COUNT_ALL with no null guard, no date
+    # Example: CATEGORY_COUNT_CHECK → COUNT_ALL(LC_ACTION_KEY)__groupby_LC_MSISDN ${op} ${val}
+    if sub == "count_groupby_only":
+        return f"COUNT_ALL({p.count_col}) ${{operator}} ${{value}}"
+
+    # Date = CurrentTime + action key check + null guard + count absent
+    # Example: RECHARGE_CHECK_SSO → GASSO_SENT_DATE = CurrentTime AND GASSO_ACTION_KEY ${op} ${val}
+    #          AND GASSO_SSO_MSISDN <> NULL AND COUNT_ALL(GASSO_ACTION_KEY)__groupby_GA_SSO_MSISDN = 0
+    if sub == "count_flag_absent_today":
+        date_col = get_date_col(p.table_name)
+        parts = [
+            f"{date_col} = CurrentTime",
+            f"{p.flag_col} ${{operator}} ${{value}}",
+        ]
+        if p.null_guard_col:
+            parts.append(f"{p.null_guard_col} <> NULL")
+        parts.append(f"COUNT_ALL({p.count_col}) = 0")
+        return " AND ".join(parts)
+
+    # Date = CurrentTime + action key check + null guard + count present
+    # Example: RECHGARGE_ACTIVATION_CHECK → GA_SENT_DATE = CurrentTime AND GA_ACTION_KEY ${op} ${val}
+    #          AND GA_SSO_MSISDN <> NULL AND COUNT_ALL(GA_ACTION_KEY)__groupby_GA_SSO_MSISDN >= 1
+    if sub == "count_flag_present_today":
+        date_col = get_date_col(p.table_name)
+        count_op  = p.count_threshold_op or ">="
+        count_val = p.count_threshold_val or "1"
+        parts = [
+            f"{date_col} = CurrentTime",
+            f"{p.flag_col} ${{operator}} ${{value}}",
+        ]
+        if p.null_guard_col:
+            parts.append(f"{p.null_guard_col} <> NULL")
+        parts.append(f"COUNT_ALL({p.count_col}) {count_op} {count_val}")
+        return " AND ".join(parts)
+
+    # Date column used as comparison value + COUNT_ALL > 0
+    # Example: EXPIRY_DAYS → RE_TRANS_DT ${op} ${val} AND COUNT_ALL(RE_REFILL_TYPE)__groupby_RE_REFILL_ID > 0
+    if sub == "date_value_count":
+        date_col = get_date_col(p.table_name)
+        count_op  = p.count_threshold_op or ">"
+        count_val = p.count_threshold_val or "0"
+        return (
+            f"{date_col} ${{operator}} ${{value}} "
+            f"AND COUNT_ALL({p.count_col}) {count_op} {count_val}"
+        )
+
+    # Multiple null guards + date as comparison value + COUNT_ALL > 0
+    # Example: Post_Expiry_ESB_Description_Count_1
+    #   → RE_REFILL_ID <> NULL AND RE_ESB_DESCRIPTION <> NULL AND RE_TRANS_DT ${op} ${val}
+    #     AND COUNT_ALL(RE_REFILL_TYPE)__groupby_RE_REFILL_ID,RE_ESB_DESCRIPTION > 0
+    if sub == "multi_null_date_value_count":
+        date_col = get_date_col(p.table_name)
+        count_op  = p.count_threshold_op or ">"
+        count_val = p.count_threshold_val or "0"
+        parts = []
+        if p.null_col_1:
+            parts.append(f"{p.null_col_1} <> NULL")
+        if p.null_col_2:
+            parts.append(f"{p.null_col_2} <> NULL")
+        parts.append(f"{date_col} ${{operator}} ${{value}}")
+        parts.append(f"COUNT_ALL({p.count_col}) {count_op} {count_val}")
+        return " AND ".join(parts)
+
+    # ── Flag / Existence sub-types (original) ─────────────────────────────────
     f = t2["flag_check"]
 
     if sub == "exists":
         return f["template_exists"].replace("{flag_col}", p.flag_col)
-
     if sub == "not_exists":
         return f["template_not_exists"].replace("{flag_col}", p.flag_col)
-
     if sub == "attr_check":
         return f["template_attr_check"].replace("{flag_col}", p.flag_col)
-
     if sub == "count_flag_present":
         return f["template_count_flag_present"] \
                 .replace("{flag_col}", p.flag_col) \
                 .replace("{count_col}", p.count_col)
-
     if sub == "count_flag_absent":
         return f["template_count_flag_absent"] \
                 .replace("{flag_col}", p.flag_col) \
                 .replace("{count_col}", p.count_col)
-
     if sub == "segment_type":
         return f["template_segment_type"] \
                 .replace("{segment_col}", p.segment_col) \
                 .replace("{segment_val}", p.segment_val) \
                 .replace("{count_col}", p.count_col)
-
     if sub == "audience_segment":
         return f["template_audience_segment"] \
                 .replace("{segment_id_col}", p.segment_id_col) \
                 .replace("{execution_counter_col}", p.execution_counter_col)
-
     if sub == "multi_or_notnull":
         if not p.col_list or len(p.col_list) < 2:
             raise HTTPException(400, "multi_or_notnull requires col_list with at least 2 columns")
         parts = [f"{col} <> NULL" for col in p.col_list]
         return " OR ".join(parts)
-
     if sub == "whitelist":
         return f["template_whitelist"].replace("{rule_id_col}", p.rule_id_col)
-
     if sub == "status_count_zero":
         return f["template_status_count_zero"] \
                 .replace("{status_col}", p.status_col) \
@@ -456,12 +569,10 @@ def resolve_track3(p: Track3Input) -> str:
         return t3["snapshot_id"]["template_by_id"] \
                 .replace("{id_col}", p.id_col) \
                 .replace("{value_col}", p.value_col)
-
     if sub == "snapshot_max_check":
         return t3["snapshot_id"]["template_max_check"] \
                 .replace("{id_col}", p.id_col) \
                 .replace("{ref_col}", p.ref_col)
-
     if sub == "snapshot_by_date_boundary":
         date_col = get_date_col(p.table_name)
         return t3["snapshot_id"]["template_by_date_boundary"] \
@@ -469,13 +580,11 @@ def resolve_track3(p: Track3Input) -> str:
                 .replace("{N}", str(p.N)) \
                 .replace("{id_col}", p.id_col) \
                 .replace("{count_col}", p.count_col)
-
     if sub == "geo_current":
         return t3["geo_location"]["template_current"] \
                 .replace("{lon_col}", p.lon_col) \
                 .replace("{lat_col}", p.lat_col) \
                 .replace("{geo_name_col}", p.geo_name_col)
-
     if sub == "geo_last_n_days":
         date_col = get_date_col(p.table_name)
         return t3["geo_location"]["template_last_n_days"] \
@@ -498,14 +607,12 @@ def resolve_track4(p: Track4Input) -> str:
         return t4["pct_drop"]["template"] \
                 .replace("{vp_a}", p.vp_a) \
                 .replace("{vp_b}", p.vp_b)
-
     if p.operation == "RATIO":
         num = p.vp_numerator or p.vp_b
         den = p.vp_denominator or p.vp_a
         return t4["ratio"]["template"] \
                 .replace("{vp_numerator}", num) \
                 .replace("{vp_denominator}", den)
-
     if p.operation == "DIFFERENCE":
         return f"({p.vp_b} - {p.vp_a}) ${{operator}} ${{value}}"
 
@@ -520,7 +627,6 @@ def resolve_track5(p: Track5Input) -> str:
     t5 = TEMPLATES["track_5"]
     sub = p.sub_type
 
-    # ── Dynamic Window sub-types ──────────────────────────────────────────────
     if sub in ("sum_x_days", "count_x_days", "virtual_sum_x_days",
                "subscription_x_days_present", "subscription_x_days_absent",
                "multi_param"):
@@ -532,36 +638,30 @@ def resolve_track5(p: Track5Input) -> str:
                     .replace("{date_col}", date_col) \
                     .replace("{agg}", p.aggregation or "SUM") \
                     .replace("{kpi_col}", p.kpi_col)
-
         if sub == "count_x_days":
             return dw["template_count"] \
                     .replace("{date_col}", date_col) \
                     .replace("{count_col}", p.count_col)
-
         if sub == "virtual_sum_x_days":
             return dw["template_virtual_sum"] \
                     .replace("{date_col}", date_col) \
                     .replace("{agg}", p.aggregation or "SUM") \
                     .replace("{vp_name}", p.vp_name) \
                     .replace("{formula}", p.formula)
-
         if sub == "subscription_x_days_present":
             return dw["template_subscription_x_days_present"] \
                     .replace("{date_col}", date_col) \
                     .replace("{id_col}", p.id_col)
-
         if sub == "subscription_x_days_absent":
             return dw["template_subscription_x_days_absent"] \
                     .replace("{date_col}", date_col) \
                     .replace("{id_col}", p.id_col)
-
         if sub == "multi_param":
             return dw["template_multi_param"] \
                     .replace("{date_col}", date_col) \
                     .replace("{key_col}", p.action_key_col) \
                     .replace("{count_col}", p.count_col)
 
-    # ── Campaign Check sub-types ──────────────────────────────────────────────
     cc = t5["campaign_check"]
 
     if sub == "bonus_not_sent_ak":
@@ -569,34 +669,29 @@ def resolve_track5(p: Track5Input) -> str:
                 .replace("{sent_date_col}", p.sent_date_col) \
                 .replace("{action_key_col}", p.action_key_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
-
     if sub == "promo_sent_ak":
         return cc["template_promo_sent_ak"] \
                 .replace("{sent_date_col}", p.sent_date_col) \
                 .replace("{action_key_col}", p.action_key_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
-
     if sub == "promo_delivered_segment":
         return cc["template_promo_delivered_segment"] \
                 .replace("{sent_date_col}", p.sent_date_col) \
                 .replace("{action_type_col}", p.action_type_col) \
                 .replace("{action_key_col}", p.action_key_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
-
     if sub == "promo_not_delivered_segment":
         return cc["template_promo_not_delivered_segment"] \
                 .replace("{sent_date_col}", p.sent_date_col) \
                 .replace("{action_type_col}", p.action_type_col) \
                 .replace("{segment_col}", p.segment_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
-
     if sub == "bonus_not_delivered_segment":
         return cc["template_bonus_not_delivered_segment"] \
                 .replace("{sent_date_col}", p.sent_date_col) \
                 .replace("{action_type_col}", p.action_type_col) \
                 .replace("{segment_col}", p.segment_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
-
     if sub == "bonus_nonresponder_ak":
         return cc["template_bonus_nonresponder_ak"] \
                 .replace("{sent_date_col}", p.sent_date_col) \
@@ -613,12 +708,11 @@ def resolve_track5(p: Track5Input) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "yaml_loaded": bool(CONFIG)}
+    return {"status": "ok", "yaml_loaded": bool(CONFIG), "version": "1.1.0"}
 
 
 @app.get("/templates")
 def list_templates():
-    """Return all template keys available in the YAML config."""
     return {
         "track_1": list(TEMPLATES["track_1"].keys()),
         "track_2": list(TEMPLATES["track_2"].keys()),
@@ -631,21 +725,6 @@ def list_templates():
 
 @app.post("/resolve")
 def resolve(request: ResolveRequest):
-    """
-    Receives track agent JSON and returns the filled PARENT_CONDITION string.
-
-    Example input (Track 1 Fixed Month):
-    {
-      "payload": {
-        "track": 1,
-        "table_name": "COMMON_Seg_Fct",
-        "kpi_col": "COMMON_Total_Revenue",
-        "aggregation": "SUM",
-        "time_window": { "type": "FIXED_MONTH", "value": 1, "unit": "MONTH" },
-        "is_composite": false
-      }
-    }
-    """
     p = request.payload
 
     if p.track == 1:
@@ -664,6 +743,20 @@ def resolve(request: ResolveRequest):
     # Clean up extra whitespace from multiline YAML templates
     condition = " ".join(condition.split())
 
+    # ── FIX 1: Resolve and apply groupby suffix ──────────────────────────
+    groupby_entity = getattr(p, "groupby_entity", None)
+    if groupby_entity:
+        table_name = getattr(p, "table_name", None)
+        if table_name:
+            groupby_cols = resolve_groupby_cols(table_name, groupby_entity)
+            if groupby_cols:
+                condition = _apply_groupby(condition, groupby_cols)
+            else:
+                logger.warning(
+                    "No groupby mapping for entity '%s' on table '%s'",
+                    groupby_entity, table_name
+                )
+
     return {
         "track": p.track,
         "parent_condition": condition,
@@ -672,111 +765,55 @@ def resolve(request: ResolveRequest):
 
 
 # =============================================================================
-# Sample Payloads (printed on startup for quick testing)
+# Sample Payloads
 # =============================================================================
 
 @app.get("/examples")
 def examples():
-    """Returns sample request payloads for each track for quick testing."""
     return {
         "track_1_fixed_month": {
             "payload": {
-                "track": 1,
-                "table_name": "COMMON_Seg_Fct",
-                "kpi_col": "COMMON_Total_Revenue",
-                "aggregation": "SUM",
+                "track": 1, "table_name": "COMMON_Seg_Fct",
+                "kpi_col": "COMMON_Total_Revenue", "aggregation": "SUM",
                 "time_window": {"type": "FIXED_MONTH", "value": 1, "unit": "MONTH"},
                 "is_composite": False
             }
         },
-        "track_1_rolling_week": {
+        "track_2_count_groupby_only": {
             "payload": {
-                "track": 1,
-                "table_name": "COMMON_Seg_Fct",
-                "kpi_col": "COMMON_OG_Call_Revenue",
-                "aggregation": "SUM",
-                "time_window": {"type": "ROLLING_WEEK", "value": 3, "unit": "WEEK"},
-                "is_composite": False
+                "track": 2, "table_name": "AIRTEL_LIFECYCLE_CDR",
+                "sub_type": "count_groupby_only",
+                "count_col": "LC_ACTION_KEY",
+                "groupby_entity": "subscriber"
             }
         },
-        "track_1_last_n_days": {
+        "track_2_count_flag_absent_today": {
             "payload": {
-                "track": 1,
-                "table_name": "COMMON_Seg_Fct",
-                "kpi_col": "COMMON_Data_Revenue",
-                "aggregation": "SUM",
-                "time_window": {"type": "LAST_N", "value": 30, "unit": "DAY"},
-                "is_composite": False
+                "track": 2, "table_name": "GASSO",
+                "sub_type": "count_flag_absent_today",
+                "flag_col": "GASSO_ACTION_KEY",
+                "count_col": "GASSO_ACTION_KEY",
+                "null_guard_col": "GASSO_SSO_MSISDN",
+                "groupby_entity": "subscriber"
             }
         },
-        "track_1_mtd": {
+        "track_2_date_value_count": {
             "payload": {
-                "track": 1,
-                "table_name": "COMMON_Seg_Fct",
-                "kpi_col": "COMMON_Prepay_Voice_Revenue",
-                "aggregation": "SUM",
-                "time_window": {"type": "MTD", "value": None, "unit": None},
-                "is_composite": False
+                "track": 2, "table_name": "AIRTEL_RECHARGE",
+                "sub_type": "date_value_count",
+                "count_col": "RE_REFILL_TYPE",
+                "count_threshold_op": ">", "count_threshold_val": "0",
+                "groupby_entity": "product"
             }
         },
-        "track_2_subscribed": {
+        "track_5_promo_sent_groupby": {
             "payload": {
-                "track": 2,
-                "table_name": "SUBSCRIPTIONS",
-                "sub_type": "subscribed",
-                "id_col": "SUBSCRIPTIONS_Product_Id",
-                "is_composite": False
-            }
-        },
-        "track_2_flag": {
-            "payload": {
-                "track": 2,
-                "table_name": "BILL_PAYMENT",
-                "sub_type": "count_flag_present",
-                "flag_col": "BILL_IS_PAID_MSISDN_PRO",
-                "count_col": "BILL_IS_PAID_MSISDN_PRO",
-                "is_composite": False
-            }
-        },
-        "track_3_geo": {
-            "payload": {
-                "track": 3,
-                "table_name": "GEO_LOCATION_STATIC",
-                "sub_type": "geo_current",
-                "lon_col": "LOCATION_LONGITUDE",
-                "lat_col": "LOCATION_LATITUDE",
-                "geo_name_col": "GEO_LOCATION_NAME",
-                "is_composite": False
-            }
-        },
-        "track_4_pct_drop": {
-            "payload": {
-                "track": 4,
-                "operation": "PERCENTAGE_DROP",
-                "vp_a": "M1_TOTAL_REVENUE",
-                "vp_b": "M2_TOTAL_REVENUE",
-                "is_composite": True
-            }
-        },
-        "track_5_dynamic": {
-            "payload": {
-                "track": 5,
-                "table_name": "Recharge_Seg_Fact",
-                "sub_type": "sum_x_days",
-                "kpi_col": "RECHARGE_Denomination",
-                "aggregation": "SUM",
-                "is_composite": False
-            }
-        },
-        "track_5_campaign": {
-            "payload": {
-                "track": 5,
-                "table_name": "LOYALTY_BONUS",
-                "sub_type": "bonus_not_sent_ak",
-                "sent_date_col": "L_BONUS_SENT_DATE",
+                "track": 5, "table_name": "LIFECYCLE_PROMO",
+                "sub_type": "promo_sent_ak",
+                "sent_date_col": "L_PROMO_SENT_DATE",
                 "action_key_col": "L_ACTION_KEY",
                 "msisdn_col": "L_AGG_MSISDN",
-                "is_composite": False
+                "groupby_entity": "action_date"
             }
-        }
+        },
     }
