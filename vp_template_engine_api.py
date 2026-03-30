@@ -189,12 +189,36 @@ class Track5Input(BaseModel):
     groupby_entity: Optional[str] = None
 
 
+# ── Track 6 — JOIN_CHECK ─────────────────────────────────────────────────
+
+class Track6DateRangeInput(BaseModel):
+    operator: Literal[">=", "<=", ">", "="]
+    value:    Optional[int] = None
+    unit:     Literal["DAYS", "MONTHS", "HOURS"] = "DAYS"
+
+
+class Track6CountCheckInput(BaseModel):
+    operator: Literal["=", ">", ">=", "<", "<="]
+    value:    str
+
+
+class Track6Input(BaseModel):
+    track:          Literal[6]
+    table_name:     str
+    check_col:      str                                    # resolved by KPI mapper
+    join_var:       str                                    # "OM_MSISDN", "HBB_imeiNumber", etc.
+    date_range:     Optional[Track6DateRangeInput] = None
+    count_check:    Optional[Track6CountCheckInput] = None
+    groupby_entity: Optional[str] = None
+    is_composite:   bool = False
+
+
 # Union input for the single /resolve endpoint
 from typing import Union
 from pydantic import Field
 
 class ResolveRequest(BaseModel):
-    payload: Union[Track1Input, Track2Input, Track3Input, Track4Input, Track5Input] = Field(
+    payload: Union[Track1Input, Track2Input, Track3Input, Track4Input, Track5Input, Track6Input] = Field(
         ..., discriminator="track"
     )
 
@@ -237,6 +261,20 @@ def get_date_col(table_name: str) -> str:
 # =============================================================================
 # FIX 1: Groupby Helpers
 # =============================================================================
+
+def resolve_join_col(table_name: str, join_var: str) -> Optional[str]:
+    """
+    Look up the actual join column for a runtime variable name.
+    Uses column_metadata.{table}.join_mappings in the YAML.
+
+    Example: resolve_join_col("AIRTEL_LIFECYCLE_CDR", "OM_MSISDN") → "LC_MSISDN"
+    """
+    meta = _get_table_meta(table_name)
+    if not meta:
+        return None
+    mappings = meta.get("join_mappings", {})
+    return mappings.get(join_var)
+
 
 def resolve_groupby_cols(table_name: str, groupby_entity: str) -> Optional[str]:
     """
@@ -703,6 +741,52 @@ def resolve_track5(p: Track5Input) -> str:
 
 
 # =============================================================================
+# Track 6 Resolver
+# =============================================================================
+
+def resolve_track6(p: Track6Input) -> str:
+    """
+    Assemble Track 6 JOIN_CHECK condition from building blocks.
+    Resolves join_col from YAML join_mappings, date_col from column_metadata.
+    """
+    parts = []
+
+    # ── Part 1: JOIN (always present) ─────────────────────────────────────
+    join_col = resolve_join_col(p.table_name, p.join_var)
+    if not join_col:
+        raise HTTPException(
+            400,
+            f"No join_mapping for variable '{p.join_var}' on table '{p.table_name}'. "
+            f"Add it to column_metadata.{p.table_name}.join_mappings in the YAML."
+        )
+    parts.append(f"{join_col} = ${p.join_var}")
+
+    # ── Part 2: CHECK (always present) ────────────────────────────────────
+    parts.append(f"{p.check_col} ${{operator}} ${{value}}")
+
+    # ── Part 3: DATE (optional) ───────────────────────────────────────────
+    if p.date_range:
+        date_col = get_date_col(p.table_name)
+        if p.date_range.value is not None:
+            parts.append(
+                f"{date_col} {p.date_range.operator} "
+                f"CurrentTime-{p.date_range.value}{p.date_range.unit}"
+            )
+        else:
+            # No offset — e.g. "<= CurrentTime"
+            parts.append(f"{date_col} {p.date_range.operator} CurrentTime")
+
+    # ── Part 4: COUNT (optional) ──────────────────────────────────────────
+    if p.count_check:
+        count_col = p.check_col   # count on the same column being checked
+        parts.append(
+            f"COUNT_ALL({count_col}) {p.count_check.operator} {p.count_check.value}"
+        )
+
+    return " AND ".join(parts)
+
+
+# =============================================================================
 # Routes
 # =============================================================================
 
@@ -737,6 +821,8 @@ def resolve(request: ResolveRequest):
         condition = resolve_track4(p)
     elif p.track == 5:
         condition = resolve_track5(p)
+    elif p.track == 6:
+        condition = resolve_track6(p)
     else:
         raise HTTPException(400, f"Invalid track: {p.track}")
 

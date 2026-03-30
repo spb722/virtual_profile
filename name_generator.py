@@ -105,4 +105,11 @@ def generate_vp_name(
         unit  = extracted.get("parameter_unit", "DAY") or "DAY"
         return f"{agg}_{col}_LAST_{param}_{unit}S"
 
+    # ── Track 6 — Join Check ─────────────────────────────────────────────────
+    elif track == 6:
+        kpi_info = resolve_kpi(extracted.get("kpi", ""))
+        col = _clean_col(kpi_info["kpi_col"])
+        join_var = extracted.get("join_var", "UNKNOWN").upper()
+        return f"JOIN_{join_var}_{col}"
+
     return "UNKNOWN_VP"

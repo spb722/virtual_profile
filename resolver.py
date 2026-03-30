@@ -20,7 +20,7 @@ from registry import VPRegistry
 from agents import (
     classify,
     extract_track1, extract_track2, extract_track3,
-    extract_track4, extract_track5,
+    extract_track4, extract_track5, extract_track6,
 )
 from name_generator import generate_vp_name
 from template_client import (
@@ -29,6 +29,7 @@ from template_client import (
     build_track2_payload,
     build_track3_payload,
     build_track5_payload,
+    build_track6_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,24 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 5})
+        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        return result
+
+    # ── Track 6 — JOIN_CHECK (leaf) ───────────────────────────────────────────
+    elif track == 6:
+        extracted = extract_track6(condition)
+        payload   = build_track6_payload(extracted)
+        template  = call_template_engine(6, payload)
+        vp_name   = generate_vp_name(6, extracted.model_dump())
+
+        result = ResolveResult(
+            vp_name          = vp_name,
+            parent_condition = template,
+            track            = 6,
+            depth            = depth,
+            child_templates  = {}
+        )
+        registry.save(condition, vp_name, template, extra={"track": 6})
         logger.info("%s  ✓ VP: %s", indent, vp_name)
         return result
 

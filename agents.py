@@ -107,6 +107,29 @@ class Track5Output(BaseModel):
     groupby_entity:        Optional[str] = None   # "subscriber", "action_date", "device", "product"
 
 
+# ── Track 6 — JOIN_CHECK schemas ─────────────────────────────────────────
+
+class Track6DateRange(BaseModel):
+    operator: Literal[">=", "<=", ">", "="]
+    value:    Optional[int] = None    # null means "CurrentTime" with no offset
+    unit:     Literal["DAYS", "MONTHS", "HOURS"] = "DAYS"
+
+
+class Track6CountCheck(BaseModel):
+    operator: Literal["=", ">", ">=", "<", "<="]
+    value:    str                      # "0", "1", "2" etc.
+
+
+class Track6Output(BaseModel):
+    track:           int               # always 6
+    kpi:             str               # "action key", "bonus counter", etc.
+    join_var:        str               # "OM_MSISDN", "HBB_imeiNumber", etc.
+    date_range:      Optional[Track6DateRange] = None
+    count_check:     Optional[Track6CountCheck] = None
+    groupby_entity:  Optional[str] = None   # "subscriber", "device", "product"
+    is_composite:    bool = False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompts
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +142,7 @@ Your job is to read a natural language description of a KPI or condition and cla
 - Track 3: SNAPSHOT — A single point-in-time value. Most recent, latest, or current record. No accumulation over a period.
 - Track 4: COMPARATIVE — Compares a KPI against itself over two periods, or two different KPIs (percentage change, ratio, drop, growth).
 - Track 5: PARAMETERIZED — Time window or product/plan is not fixed; will be supplied at runtime (e.g. "last N days", "specified product").
+- Track 6: JOIN_CHECK — A condition that joins on a runtime subscriber/device variable (e.g. "matches OM_MSISDN", "join on MSISDN", "where device ID equals HBB_imeiNumber", "MSISDN matches OM_CHECK_MSISDN"). Always involves a runtime variable like OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, or LT_DEVICE_ID.
 
 Rules:
 1. Accumulation or aggregation over a time period → Track 1.
@@ -130,11 +154,12 @@ Rules:
 7. Doubt between Track 1 and Track 4: two time periods compared, or drop/growth/ratio → Track 4.
 8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (these are existence/absence checks expressed through counts, not time-series aggregations).
 9. "X not triggered/sent per subscriber", "X per device", or "no record per entity" → Track 2 (per-entity presence checks are flags, not time-series).
+10. If the condition mentions matching or joining on a runtime variable name (OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, LT_DEVICE_ID) → Track 6, regardless of whether it also has a date range or count check.
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
-  "track": <1|2|3|4|5>,
-  "track_label": "<TIME_SERIES|STATIC_FLAG|SNAPSHOT|COMPARATIVE|PARAMETERIZED>",
+  "track": <1|2|3|4|5|6>,
+  "track_label": "<TIME_SERIES|STATIC_FLAG|SNAPSHOT|COMPARATIVE|PARAMETERIZED|JOIN_CHECK>",
   "confidence": "<HIGH|MEDIUM|LOW>",
   "reason": "<one sentence explaining why>"
 }"""
@@ -291,6 +316,53 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 }"""
 
 
+TRACK6_SYSTEM = """You are an extraction agent for a telecom rule engine system.
+You will receive a natural language description already classified as Track 6: JOIN_CHECK.
+This track handles conditions that join on a runtime subscriber/device variable.
+
+Fields to extract:
+- kpi: the attribute being checked (e.g. "action key", "bonus counter", "refill type")
+- join_var: the runtime variable name being matched (e.g. "OM_MSISDN", "OM_CHECK_MSISDN", "HBB_imeiNumber", "RE_REFILL_ID", "LT_DEVICE_ID"). Extract exactly as named in the input — do not add "$" prefix.
+- date_range: if a time filter is mentioned, extract operator, value, and unit. null if no date filter.
+- count_check: if a count condition is mentioned (e.g. "count is zero", "at least one"), extract operator and value. null if no count condition.
+- groupby_entity: if counting should be grouped per entity (e.g. "per subscriber", "per device"). null if no grouping.
+- is_composite: false (always)
+
+Rules:
+1. join_var must be extracted exactly as it appears in the input (e.g. "OM_MSISDN" not "$OM_MSISDN", not "om_msisdn").
+2. "within last N days" / "last N days" / "sent in N days" → date_range: {"operator": ">=", "value": N, "unit": "DAYS"}
+3. "up to today" / "until now" / "up to current time" → date_range: {"operator": "<=", "value": null, "unit": "DAYS"}
+4. "before N days ago" / "older than N days" → date_range: {"operator": "<=", "value": N, "unit": "DAYS"}
+5. "count is zero" / "not sent" / "absent" / "no record" → count_check: {"operator": "=", "value": "0"}
+6. "count greater than zero" / "at least one" / "present" / "exists" → count_check: {"operator": ">", "value": "0"}
+7. "at most 2" / "less than N" → count_check: {"operator": "<", "value": "N"} or {"operator": "<=", "value": "N"}
+8. "per subscriber" / "per MSISDN" / "grouped by subscriber" → groupby_entity: "subscriber"
+9. "per device" / "per IMEI" / "grouped by device" → groupby_entity: "device"
+10. "per product" / "per refill" / "grouped by product" → groupby_entity: "product"
+11. If no date range is mentioned at all, set date_range to null.
+12. If no count condition is mentioned, set count_check to null.
+
+Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
+{
+  "track": 6,
+  "kpi": "<attribute being checked>",
+  "join_var": "<runtime variable name>",
+  "date_range": null,
+  "count_check": null,
+  "groupby_entity": null,
+  "is_composite": false
+}
+
+date_range, when not null, must be a JSON object:
+  {"operator": ">=", "value": 350, "unit": "DAYS"}
+  {"operator": "<=", "value": null, "unit": "DAYS"}
+
+count_check, when not null, must be a JSON object:
+  {"operator": "=", "value": "0"}
+  {"operator": ">", "value": "0"}
+"""
+
+
 TRACK5_SYSTEM = """You are an extraction agent for a telecom rule engine system.
 You will receive a natural language description already classified as Track 5: PARAMETERIZED.
 
@@ -425,4 +497,11 @@ def extract_track5(condition: str) -> Track5Output:
         TRACK5_SYSTEM,
         f"condition: {condition}",
         Track5Output
+    )
+
+def extract_track6(condition: str) -> Track6Output:
+    return call_llm(
+        TRACK6_SYSTEM,
+        f"condition: {condition}",
+        Track6Output
     )

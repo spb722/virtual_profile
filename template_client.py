@@ -15,7 +15,7 @@ FIX 1 CHANGES:
 import logging
 import requests
 
-from agents import Track1Output, Track2Output, Track3Output, Track5Output
+from agents import Track1Output, Track2Output, Track3Output, Track5Output, Track6Output
 from kpi_mapper import resolve_kpi
 
 logger = logging.getLogger(__name__)
@@ -123,6 +123,35 @@ def build_track5_payload(extracted: Track5Output) -> dict:
         "is_composite": extracted.is_composite
     }
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
+    if extracted.groupby_entity:
+        payload["groupby_entity"] = extracted.groupby_entity
+    return payload
+
+
+def build_track6_payload(extracted: Track6Output) -> dict:
+    """
+    Build Track 6 join-check payload.
+    Resolves kpi via KPI mapper to get table_name + check_col.
+    Passes join_var, date_range, count_check, groupby_entity through.
+    """
+    kpi_info = resolve_kpi(extracted.kpi)
+    payload = {
+        "table_name":   kpi_info["table_name"],
+        "check_col":    kpi_info["kpi_col"],
+        "join_var":     extracted.join_var,
+        "is_composite": extracted.is_composite
+    }
+    if extracted.date_range:
+        payload["date_range"] = {
+            "operator": extracted.date_range.operator,
+            "value":    extracted.date_range.value,
+            "unit":     extracted.date_range.unit,
+        }
+    if extracted.count_check:
+        payload["count_check"] = {
+            "operator": extracted.count_check.operator,
+            "value":    extracted.count_check.value,
+        }
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
     return payload

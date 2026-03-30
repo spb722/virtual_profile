@@ -602,6 +602,8 @@ column_metadata:
     groupby_mappings:
       subscriber: LC_MSISDN
       device: L_IMEI
+    join_mappings:
+      HBB_imeiNumber: L_IMEI
   MANUAL_SEGMENT_GROUP:
     date_col: null
   AUDIENCE_SEGMENT_CDR:
@@ -614,6 +616,9 @@ column_metadata:
       - LC_MSISDN
     groupby_mappings:
       subscriber: LC_MSISDN
+    join_mappings:
+      OM_MSISDN: LC_MSISDN
+      OM_CHECK_MSISDN: LC_MSISDN
 
   # --- Airtel: Recharge / Refill ---
   AIRTEL_RECHARGE:
@@ -626,6 +631,8 @@ column_metadata:
     groupby_mappings:
       product: RE_REFILL_ID
       product_description: "RE_REFILL_ID,RE_ESB_DESCRIPTION"
+    join_mappings:
+      RE_REFILL_ID: RE_REFILL_ID
 
   # --- Airtel: GASSO (SSO recharge activation) ---
   GASSO:
@@ -654,6 +661,8 @@ column_metadata:
       - IMEI_NEW_TEMP
     groupby_mappings:
       device: IMEI_NEW_TEMP
+    join_mappings:
+      HBB_imeiNumber: IMEI_NEW
 
   # --- Airtel: SDC (device counter) ---
   SDC_TABLE:
@@ -661,6 +670,8 @@ column_metadata:
     kpi_examples:
       - SDC_DEVICE_ID
       - SDC_BONUS_COUNTER
+    join_mappings:
+      LT_DEVICE_ID: SDC_DEVICE_ID
   Profile_Cdr_group:
     date_col: PROFILE_CURRENT_PLAN_ACT_DATE
   Instant_cdr_group:
