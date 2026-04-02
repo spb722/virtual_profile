@@ -546,6 +546,12 @@ column_metadata:
     kpi_examples:
       - RECHARGE_Denomination
 
+  # Alias — VP Verify API sometimes returns this spelling (Fct vs Fact)
+  Recharge_Seg_Fct:
+    date_col: RECHARGE_Event_Date
+    kpi_examples:
+      - RECHARGE_Denomination
+
   DPI_App_Usage:
     date_col: dpi_app_usage_event_date
     kpi_examples:
@@ -604,6 +610,7 @@ column_metadata:
       device: L_IMEI
     join_mappings:
       HBB_imeiNumber: L_IMEI
+      OM_MSISDN: LC_MSISDN
   MANUAL_SEGMENT_GROUP:
     date_col: null
   AUDIENCE_SEGMENT_CDR:

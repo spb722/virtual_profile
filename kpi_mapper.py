@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 VP_VERIFY_URL = os.environ.get(
     "VP_VERIFY_URL",
-    "http://localhost:5678/webhook/VP_verify",
+    "https://10.0.11.179:5678/webhook/VP_verify",
 )
 VP_VERIFY_TIMEOUT = float(os.environ.get("VP_VERIFY_TIMEOUT", "15"))
 VP_VERIFY_SSL_VERIFY = (

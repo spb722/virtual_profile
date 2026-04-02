@@ -12,6 +12,7 @@ Flow for every condition:
        Track 4        → COMPOSITE → recurse into operand_a and operand_b → compose formula → save → return
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Dict
@@ -157,7 +158,7 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 1})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 1, "vp_name": vp_name, "parent_condition": template}))
         return result
 
     # ── Track 2 — STATIC FLAG (leaf) ──────────────────────────────────────────
@@ -175,7 +176,7 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 2})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 2, "vp_name": vp_name, "parent_condition": template}))
         return result
 
     # ── Track 3 — SNAPSHOT (leaf) ─────────────────────────────────────────────
@@ -193,7 +194,7 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 3})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 3, "vp_name": vp_name, "parent_condition": template}))
         return result
 
     # ── Track 4 — COMPARATIVE (composite — recursive) ─────────────────────────
@@ -236,7 +237,7 @@ def resolve(
         )
         registry.save(condition, vp_name, template,
                       child_templates=child_templates, extra={"track": 4})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 4, "vp_name": vp_name, "parent_condition": template, "child_vps": [vp_a, vp_b]}))
         return result
 
     # ── Track 5 — PARAMETERIZED (leaf) ────────────────────────────────────────
@@ -254,12 +255,13 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 5})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 5, "vp_name": vp_name, "parent_condition": template}))
         return result
 
     # ── Track 6 — JOIN_CHECK (leaf) ───────────────────────────────────────────
     elif track == 6:
         extracted = extract_track6(condition)
+        logger.info("%s  Extracted Track 6: %s", indent, json.dumps(extracted.model_dump()))
         payload   = build_track6_payload(extracted)
         template  = call_template_engine(6, payload)
         vp_name   = generate_vp_name(6, extracted.model_dump())
@@ -272,7 +274,7 @@ def resolve(
             child_templates  = {}
         )
         registry.save(condition, vp_name, template, extra={"track": 6})
-        logger.info("%s  ✓ VP: %s", indent, vp_name)
+        logger.info("%s  VP_OUTPUT %s", indent, json.dumps({"condition": condition, "track": 6, "vp_name": vp_name, "parent_condition": template}))
         return result
 
     else:

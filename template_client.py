@@ -33,7 +33,14 @@ def call_template_engine(track: int, payload: dict) -> str:
     logger.debug("Template engine request: %s", body)
     try:
         resp = requests.post(TEMPLATE_URL, json=body, timeout=TIMEOUT)
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            msg = f"[TEMPLATE_ENGINE_ERROR {resp.status_code}: {detail}]"
+            logger.error(msg)
+            return msg
         result = resp.json()
         logger.debug("Template engine response: %s", result)
         return result.get("parent_condition", "[EMPTY RESPONSE FROM TEMPLATE ENGINE]")
