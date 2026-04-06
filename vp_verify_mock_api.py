@@ -397,6 +397,9 @@ FUZZY_KEYWORDS = [
     ("bill payment amount",         "BILL_PAYMENT_SUMMARY_AMOUNT",      "BILL_PAYMENT"),
     ("bill paid",                   "BILL_IS_PAID_MSISDN_PRO",          "BILL_EVENT"),
     ("bill payment",                "BILL_PAYMENT_SUMMARY_AMOUNT",      "BILL_PAYMENT"),
+    # VAS subscription
+    ("vas subscription",            "VAS_CNT_OF_PID",                   "VAS_SUBSCRIPTIONS"),
+    ("vas product",                 "VAS_CNT_OF_PID",                   "VAS_SUBSCRIPTIONS"),
     # Subscription
     ("subscri",                     "SUBSCRIPTIONS_Product_Id",          "Subscriptions"),
     ("product",                     "SUBSCRIPTIONS_Product_Id",          "Subscriptions"),

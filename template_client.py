@@ -10,6 +10,8 @@ Note: Track 4 never calls this directly —
 FIX 1 CHANGES:
   - build_track2_payload: passes groupby_entity through to template engine
   - build_track5_payload: passes groupby_entity through to template engine
+  - build_track5_payload: routes parameterized subscription checks to the
+    Track 5 subscription templates instead of the generic metric template
 """
 
 import logging
@@ -122,16 +124,27 @@ def build_track3_payload(extracted: Track3Output) -> dict:
 def build_track5_payload(extracted: Track5Output) -> dict:
     """
     Build Track 5 parameterized payload.
-    Now passes through groupby_entity if the agent extracted one.
+    Routes subscription presence/absence checks to the dedicated Track 5
+    templates and leaves all other cases on the existing generic path.
     """
     kpi_info = resolve_kpi(extracted.kpi, extracted.aggregation)
-    payload = {
-        "table_name":  kpi_info["table_name"],
-        "sub_type":    "sum_x_days",
-        "kpi_col":     kpi_info["kpi_col"],
-        "aggregation": extracted.aggregation,
-        "is_composite": extracted.is_composite
-    }
+    subscription_sub_type = _infer_track5_subscription_subtype(extracted, kpi_info)
+
+    if subscription_sub_type:
+        payload = {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     subscription_sub_type,
+            "id_col":       kpi_info["kpi_col"],
+            "is_composite": extracted.is_composite
+        }
+    else:
+        payload = {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "sum_x_days",
+            "kpi_col":      kpi_info["kpi_col"],
+            "aggregation":  extracted.aggregation,
+            "is_composite": extracted.is_composite
+        }
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
@@ -182,3 +195,64 @@ def _map_state_to_subtype(expected_state: str) -> str:
         "ASSIGNED":       "segment_type",
     }
     return mapping.get(expected_state.upper(), "attr_check")
+
+
+def _infer_track5_subscription_subtype(extracted: Track5Output, kpi_info: dict) -> str | None:
+    """
+    Route parameterized subscription checks to the dedicated Track 5 templates.
+    This keeps the existing generic Track 5 flow unchanged for non-subscription
+    metrics such as recharge revenue, bonus history, or generic counts.
+    """
+    if not _looks_like_subscription_target(kpi_info):
+        return None
+
+    text = " ".join(
+        part.strip().lower()
+        for part in (
+            extracted.kpi or "",
+            str(kpi_info.get("matched_condition", "") or ""),
+        )
+        if part
+    )
+
+    negative_markers = (
+        "not subscribed",
+        "non subscribed",
+        "non-subscribed",
+        "unsubscribed",
+        "without subscription",
+        "no subscription",
+    )
+    positive_markers = (
+        "currently subscribed",
+        "is subscribed",
+        "are subscribed",
+        "subscribed customer",
+        "subscribed customers",
+        "subscribed to product",
+        "active subscription",
+        "active product subscription",
+    )
+
+    if any(marker in text for marker in negative_markers):
+        return "subscription_x_days_absent"
+    if (
+        ("subscription" in text or "subscribed" in text)
+        and ("without" in text or " no " in f" {text} ")
+    ):
+        return "subscription_x_days_absent"
+    if any(marker in text for marker in positive_markers):
+        return "subscription_x_days_present"
+    if "subscription" in text or "subscribed" in text:
+        return "subscription_x_days_present"
+    return None
+
+
+def _looks_like_subscription_target(kpi_info: dict) -> bool:
+    table_name = str(kpi_info.get("table_name", "") or "").strip().lower()
+    kpi_col = str(kpi_info.get("kpi_col", "") or "").strip().lower()
+    return (
+        "subscription" in table_name
+        or "subscription" in kpi_col
+        or "product_id" in kpi_col
+    )

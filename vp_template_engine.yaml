@@ -576,6 +576,11 @@ column_metadata:
       - SUBSCRIPTIONS_Product_Id
       - SUBSCRIPTIONS_MSISDN
 
+  VAS_SUBSCRIPTIONS:
+    date_col: VAS_SUBSCRIPTIONS_DT
+    kpi_examples:
+      - VAS_CNT_OF_PID
+
   BILL_PAYMENT:
     date_col: BILL_PAYMENT_SUMAMRY_DATE
     kpi_examples:
