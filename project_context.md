@@ -90,12 +90,12 @@ Meaning:
 Examples from prompts/docs:
 
 - total revenue last month
-- average recharge last 3 months
+- average recharge amount over last 3 months
 - rolling week 5 OG call revenue
 
 Fields extracted:
 
-- `kpi`
+- `kpi` (metric name only; aggregation intent is extracted separately)
 - `aggregation`
 - `time_window`
 - `is_composite`
@@ -112,6 +112,8 @@ Supported time-window types:
 Current recent enhancement:
 
 - Track 1 now also supports list-based filters for cases like product IDs or action keys, using `COUNT_ALL` plus `IN LIST (...)`.
+- Track 1 accepts broader time-window phrasing such as `past 30 days`, `over the last 3 months`, `current month`, and aliases like `month 2` / `M2` for fixed months.
+- Track 1 examples now explicitly distinguish KPI text from aggregation intent, for example `average recharge amount over last 3 months` extracts `kpi=recharge amount` and `aggregation=AVG`.
 
 ### Track 2: STATIC_FLAG
 
@@ -645,7 +647,7 @@ Those are currently not listed in `requirements.txt`.
 
 There is now also an external runtime dependency on the VP verification API used by `kpi_mapper.py`:
 
-- default URL: `https://10.0.11.179:5678/webhook/VP_verify`
+- default URL: `https://10.0.11.179:5678/webhook/VP_verify/webhook/VP_verify`
 - configurable with `VP_VERIFY_URL`
 - timeout configurable with `VP_VERIFY_TIMEOUT`
 - SSL verification configurable with `VP_VERIFY_SSL_VERIFY`

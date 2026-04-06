@@ -62,7 +62,7 @@ def call_template_engine(track: int, payload: dict) -> str:
 # Payload Builders — one per leaf track
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_track1_payload(extracted: Track1Output) -> dict:
+def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
     """
     Convert Track1Output → template engine request body.
     Resolves kpi text → table_name + kpi_col via KPI mapper.
@@ -70,7 +70,7 @@ def build_track1_payload(extracted: Track1Output) -> dict:
     """
     kpi_info = resolve_kpi(extracted.kpi, extracted.aggregation)
     tw       = extracted.time_window
-    return {
+    payload = {
         "table_name":  kpi_info["table_name"],
         "kpi_col":     kpi_info["kpi_col"],
         "aggregation": extracted.aggregation,
@@ -81,6 +81,9 @@ def build_track1_payload(extracted: Track1Output) -> dict:
         },
         "is_composite": extracted.is_composite
     }
+    if vp_name:
+        payload["vp_name"] = vp_name
+    return payload
 
 
 def build_track2_payload(extracted: Track2Output) -> dict:

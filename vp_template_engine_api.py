@@ -397,12 +397,19 @@ def resolve_track1(p: Track1Input) -> str:
         ln = t1["last_n"]
         n = str(tw.value)
 
-        if tw.unit == "MONTH" and p.vp_name:
-            tmpl = ln["template_months_avg"]
-            return tmpl.replace("{date_col}", date_col) \
-                       .replace("{N}", n) \
-                       .replace("{vp_name}", p.vp_name) \
-                       .replace("{kpi_col}", p.kpi_col)
+        if tw.unit == "MONTH":
+            if p.aggregation == "AVG" and p.vp_name:
+                tmpl = ln["template_months_avg"]
+                return tmpl.replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{vp_name}", p.vp_name) \
+                           .replace("{kpi_col}", p.kpi_col)
+            else:
+                tmpl = ln["template_months_sum"]
+                return tmpl.replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{agg}", p.aggregation) \
+                           .replace("{kpi_col}", p.kpi_col)
 
         if not date_col or date_col == "null":
             if p.formula and p.vp_name:

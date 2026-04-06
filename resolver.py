@@ -146,9 +146,10 @@ def resolve(
     # ── Track 1 — TIME SERIES (leaf) ──────────────────────────────────────────
     if track == 1:
         extracted = extract_track1(condition)
-        payload   = build_track1_payload(extracted)
-        template  = call_template_engine(1, payload)
+        logger.info("%s  Extracted Track 1: %s", indent, json.dumps(extracted.model_dump()))
         vp_name   = generate_vp_name(1, extracted.model_dump())
+        payload   = build_track1_payload(extracted, vp_name=vp_name)
+        template  = call_template_engine(1, payload)
 
         result = ResolveResult(
             vp_name          = vp_name,

@@ -169,11 +169,13 @@ TRACK1_SYSTEM = """You are an extraction agent for a telecom rule engine system.
 You will receive a natural language description already classified as Track 1: TIME_SERIES.
 
 Fields to extract:
-- kpi: core metric (e.g. "total revenue", "recharge amount", "data volume", "og call revenue")
-- aggregation: AVG | SUM | COUNT | COUNT_ALL | MAX | MIN  (infer: "total"→SUM, "average"→AVG, "number of"→COUNT, "count all"→COUNT_ALL)
+- kpi: the core metric being measured, in plain English (e.g. "total revenue", "recharge amount", "data volume", "og call revenue"). Extract only the metric name — aggregation intent like "average" or "sum" goes into the aggregation field, not here.
+- aggregation: AVG | SUM | COUNT | COUNT_ALL | MAX | MIN
+  Infer from context: "total"→SUM, "average"/"mean"→AVG, "number of"→COUNT, "count all"→COUNT_ALL
 - time_window.type: ROLLING_WEEK | FIXED_MONTH | LAST_N | MTD | LMTD
-- time_window.value: numeric value (null for MTD/LMTD)
-- time_window.unit: DAY | WEEK | MONTH (null for MTD/LMTD)
+- time_window.value: the numeric value from the input (e.g. 30, 3, 90). null for MTD/LMTD.
+- time_window.unit: the time unit mentioned in the input — DAY, WEEK, or MONTH. null for MTD/LMTD.
+  "last 30 days" → unit=DAY. "last 3 months" → unit=MONTH. "rolling week 5" → unit=WEEK.
 - is_composite: false
 - filter_col: column being filtered (natural language, e.g. "refill ID", "action key") — null if no list filter
 - filter_values: list of specific allowed values (e.g. ["MD03", "M138"]) — null if no list filter
@@ -181,13 +183,17 @@ Fields to extract:
 Rules:
 1. Never guess table or column names — leave those to downstream.
 2. Default SUM for revenue/amount, COUNT for event/occurrence fields.
-3. "Two months ago" → FIXED_MONTH value=2.
+3. "Two months ago" / "month 2" / "M2" → FIXED_MONTH value=2.
 4. "Rolling week 5" → ROLLING_WEEK value=5.
-5. "Last 30 days" → LAST_N value=30 unit=DAY.
-6. "Last 3 months" (without comparison) → LAST_N value=3 unit=MONTH.
-7. "Month to date" / "this month" → MTD value=null unit=null.
+5. "Last 30 days" / "past 30 days" → LAST_N value=30 unit=DAY.
+6. "Last 3 months" / "over the last 3 months" / "past 3 months" → LAST_N value=3 unit=MONTH.
+7. "Month to date" / "this month" / "current month" → MTD value=null unit=null.
 8. "Last month to date" / "same period last month" → LMTD value=null unit=null.
-9. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Use COUNT_ALL as the aggregation when a list filter is present. If no such multi-value filter is mentioned, leave both fields as null.
+9. "average revenue over last 3 months" → kpi: "revenue", aggregation: AVG, time_window: {type: LAST_N, value: 3, unit: MONTH}.
+   "average recharge amount over last 3 months" → kpi: "recharge amount", aggregation: AVG, time_window: {type: LAST_N, value: 3, unit: MONTH}.
+   "total data revenue in the last 15 days" → kpi: "data revenue", aggregation: SUM, time_window: {type: LAST_N, value: 15, unit: DAY}.
+   "total revenue last month" → kpi: "total revenue", aggregation: SUM, time_window: {type: FIXED_MONTH, value: 1}.
+10. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Use COUNT_ALL as the aggregation when a list filter is present. If no such multi-value filter is mentioned, leave both fields as null.
    Examples:
    - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"]
    - "bonus sent for action keys HBB_key, PROMO_key" → filter_col: "action key", filter_values: ["HBB_key", "PROMO_key"]

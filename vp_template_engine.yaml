@@ -120,6 +120,10 @@ track_1:
     template_months_avg: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
       AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+    # Last N completed months with SUM/non-AVG aggregation
+    template_months_sum: >
+      {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
+      AND {agg}({kpi_col}) ${operator} ${value}
     # With dimension filter (e.g. dpi protocol)
     template_days_with_filter: >
       {date_col} >= CurrentTime-{N}DAYS

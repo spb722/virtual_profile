@@ -74,10 +74,10 @@ Every condition maps to exactly one track:
 
 | Type | Meaning | Example |
 |---|---|---|
-| `FIXED_MONTH` | Calendar month offset | "two months ago" |
+| `FIXED_MONTH` | Calendar month offset, including aliases like `month 2` / `M2` | "two months ago" |
 | `ROLLING_WEEK` | Rolling 7-day window | "rolling week 3" |
-| `LAST_N` | Last N days/months | "last 30 days" |
-| `MTD` | Month to date | "this month so far" |
+| `LAST_N` | Last N days/months, including phrasing like `past 30 days` or `over the last 3 months` | "last 30 days" |
+| `MTD` | Month to date, including `this month` or `current month` | "this month so far" |
 | `LMTD` | Last month to date | "same period last month" |
 
 ---
