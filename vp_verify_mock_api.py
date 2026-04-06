@@ -248,6 +248,15 @@ MOCK_KPI_MAP = {
     "bonus action key":             {"kpi": "L_ACTION_KEY",    "table_name": "LIFECYCLE_BONUS", "datatype": "categorical"},
     "bonus for action key":         {"kpi": "L_ACTION_KEY",    "table_name": "LIFECYCLE_BONUS", "datatype": "categorical"},
     "bonus sent":                   {"kpi": "L_ACTION_KEY",    "table_name": "LIFECYCLE_BONUS", "datatype": "categorical"},
+    # Bonus campaign phrases → LIFECYCLE_PROMO (exact match runs before fuzzy "bonus" → LIFECYCLE_BONUS)
+    "bonus not sent":               {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus not sent for action key": {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus not received":           {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus not delivered":          {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus received":               {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus delivered":              {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "no bonus received":            {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
+    "bonus absent":                 {"kpi": "LC_SEGMENT_NAME", "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},
 
     # ─── LIFECYCLE_PROMO ────────────────────────────────────────────────────
     "action key":                   {"kpi": "L_ACTION_KEY",     "table_name": "LIFECYCLE_PROMO", "datatype": "categorical"},

@@ -12,13 +12,27 @@ FIX 1 CHANGES:
   - build_track5_payload: passes groupby_entity through to template engine
   - build_track5_payload: routes parameterized subscription checks to the
     Track 5 subscription templates instead of the generic metric template
+
+FIX 2 CHANGES:
+  - build_track5_payload: routes bonus/promo campaign checks to the dedicated
+    Track 5 campaign templates (bonus_not_sent_ak, promo_sent_ak, etc.)
+  - _resolve_campaign_columns: reads column names from YAML campaign_check_mappings
+    and passes them directly in the payload (single source of truth in YAML)
 """
 
 import logging
+import os
+
 import requests
+import yaml
 
 from agents import Track1Output, Track2Output, Track3Output, Track5Output, Track6Output
 from kpi_mapper import resolve_kpi
+
+# Load YAML column metadata once at startup (same file the template engine uses)
+_YAML_PATH = os.path.join(os.path.dirname(__file__), "vp_template_engine.yaml")
+with open(_YAML_PATH, "r") as _f:
+    _COLUMN_META = yaml.safe_load(_f).get("column_metadata", {})
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +108,17 @@ def build_track2_payload(extracted: Track2Output) -> dict:
     Now passes through groupby_entity if the agent extracted one.
     """
     kpi_info = resolve_kpi(extracted.kpi)
-    payload = {
-        "table_name":     kpi_info["table_name"],
-        "sub_type":       _map_state_to_subtype(extracted.expected_state),
-        "flag_col":       kpi_info["kpi_col"],
-        "count_col":      kpi_info["kpi_col"],
-        "is_composite":   extracted.is_composite
-    }
+    promo_payload = _build_track2_fixed_promo_absence_payload(extracted, kpi_info)
+    if promo_payload:
+        payload = promo_payload
+    else:
+        payload = {
+            "table_name":     kpi_info["table_name"],
+            "sub_type":       _map_state_to_subtype(extracted.expected_state),
+            "flag_col":       kpi_info["kpi_col"],
+            "count_col":      kpi_info["kpi_col"],
+            "is_composite":   extracted.is_composite
+        }
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
@@ -124,8 +142,12 @@ def build_track3_payload(extracted: Track3Output) -> dict:
 def build_track5_payload(extracted: Track5Output) -> dict:
     """
     Build Track 5 parameterized payload.
-    Routes subscription presence/absence checks to the dedicated Track 5
-    templates and leaves all other cases on the existing generic path.
+    Priority order:
+      1. Subscription checks   → subscription_x_days_present / absent
+      2. Campaign/bonus checks → bonus_not_sent_ak / promo_sent_ak / promo_not_delivered_segment
+         (column names read from YAML campaign_check_mappings and included in payload)
+      3. Generic COUNT         → count_x_days
+      4. Generic SUM/other     → sum_x_days
     """
     kpi_info = resolve_kpi(extracted.kpi, extracted.aggregation)
     subscription_sub_type = _infer_track5_subscription_subtype(extracted, kpi_info)
@@ -138,13 +160,32 @@ def build_track5_payload(extracted: Track5Output) -> dict:
             "is_composite": extracted.is_composite
         }
     else:
-        payload = {
-            "table_name":   kpi_info["table_name"],
-            "sub_type":     "sum_x_days",
-            "kpi_col":      kpi_info["kpi_col"],
-            "aggregation":  extracted.aggregation,
-            "is_composite": extracted.is_composite
-        }
+        campaign_sub_type = _infer_track5_campaign_subtype(extracted, kpi_info)
+        if campaign_sub_type:
+            cols = _resolve_campaign_columns(kpi_info["table_name"], campaign_sub_type)
+            payload = {
+                "table_name":     kpi_info["table_name"],
+                "sub_type":       campaign_sub_type,
+                "sent_date_col":  cols["sent_date_col"],
+                "action_key_col": cols["action_key_col"],
+                "msisdn_col":     cols["msisdn_col"],
+                "is_composite":   extracted.is_composite,
+            }
+        elif str(extracted.aggregation or "").upper() == "COUNT":
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     "count_x_days",
+                "count_col":    kpi_info["kpi_col"],
+                "is_composite": extracted.is_composite
+            }
+        else:
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     "sum_x_days",
+                "kpi_col":      kpi_info["kpi_col"],
+                "aggregation":  extracted.aggregation,
+                "is_composite": extracted.is_composite
+            }
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
@@ -195,6 +236,37 @@ def _map_state_to_subtype(expected_state: str) -> str:
         "ASSIGNED":       "segment_type",
     }
     return mapping.get(expected_state.upper(), "attr_check")
+
+
+def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
+    """
+    Route fixed-window promo absence checks through a dedicated Track 2 branch.
+    This is intentionally narrow so the rest of Track 2 keeps its existing
+    behavior.
+    """
+    if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_PROMO":
+        return None
+    if str(extracted.expected_state or "").upper() != "NOT_EXISTS":
+        return None
+
+    time_constraint = extracted.time_constraint
+    if not time_constraint:
+        return None
+    if time_constraint.type == "TODAY":
+        n_days = 0
+    elif time_constraint.type == "LAST_N_DAYS" and time_constraint.value is not None:
+        n_days = time_constraint.value
+    else:
+        return None
+
+    return {
+        "table_name":   kpi_info["table_name"],
+        "sub_type":     "campaign_absent_fixed_days",
+        "flag_col":     kpi_info["kpi_col"],
+        "count_col":    "L_AGG_MSISDN",
+        "N":            n_days,
+        "is_composite": extracted.is_composite,
+    }
 
 
 def _infer_track5_subscription_subtype(extracted: Track5Output, kpi_info: dict) -> str | None:
@@ -256,3 +328,51 @@ def _looks_like_subscription_target(kpi_info: dict) -> bool:
         or "subscription" in kpi_col
         or "product_id" in kpi_col
     )
+
+
+def _infer_track5_campaign_subtype(extracted: Track5Output, kpi_info: dict) -> str | None:
+    """
+    Detect bonus/promo campaign patterns from the extracted KPI text and return
+    the right sub_type.  Table name is used as a guard — only LIFECYCLE tables
+    enter this path.
+    """
+    table_name = str(kpi_info.get("table_name", "") or "").strip().upper()
+    if table_name not in ("LIFECYCLE_PROMO", "LIFECYCLE_BONUS"):
+        return None
+
+    text = (extracted.kpi or "").lower()
+
+    # Bonus conditions
+    if "bonus" in text:
+        if "not sent" in text or "not received" in text or "not delivered" in text:
+            return "bonus_not_sent_ak"
+        return "promo_sent_ak"   # bonus received / sent → same template family
+
+    # Promo conditions
+    if "promo" in text:
+        if "not sent" in text or "not delivered" in text:
+            return "promo_not_delivered_segment"
+        return "promo_sent_ak"
+
+    return None
+
+
+def _resolve_campaign_columns(table_name: str, sub_type: str) -> dict:
+    """
+    Pull campaign check column names from YAML column_metadata.campaign_check_mappings.
+    Raises ValueError if the mapping is missing so failures are loud and obvious.
+    """
+    # Case-insensitive table lookup
+    meta = None
+    for key, val in _COLUMN_META.items():
+        if key.upper() == table_name.upper():
+            meta = val
+            break
+    if not meta:
+        raise ValueError(f"Table '{table_name}' not found in column_metadata")
+    cols = meta.get("campaign_check_mappings", {}).get(sub_type)
+    if not cols:
+        raise ValueError(
+            f"No campaign_check_mapping for sub_type '{sub_type}' on table '{table_name}'"
+        )
+    return cols

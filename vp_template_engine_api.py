@@ -96,6 +96,7 @@ class Track2Input(BaseModel):
         "count_groupby_only",            # bare COUNT_ALL, no null guard, no date
         "count_flag_absent_today",       # date=CurrentTime + null guard + count=0
         "count_flag_present_today",      # date=CurrentTime + null guard + count>=1
+        "campaign_absent_fixed_days",    # date>=CurrentTime-NDAYS + key check + count=0
         "date_value_count",              # date col as ${op} ${val} + COUNT > 0
         "multi_null_date_value_count"    # multi null guards + date as ${op} ${val} + COUNT > 0
     ]
@@ -261,6 +262,17 @@ def get_date_col(table_name: str) -> str:
 # =============================================================================
 # FIX 1: Groupby Helpers
 # =============================================================================
+
+def get_campaign_check_cols(table_name: str, sub_type: str) -> dict:
+    """
+    Read campaign check column names from YAML campaign_check_mappings.
+    Returns a dict with sent_date_col, action_key_col, msisdn_col (or empty dict).
+    """
+    meta = _get_table_meta(table_name)
+    if not meta:
+        return {}
+    return meta.get("campaign_check_mappings", {}).get(sub_type, {})
+
 
 def resolve_join_col(table_name: str, join_var: str) -> Optional[str]:
     """
@@ -532,6 +544,16 @@ def resolve_track2(p: Track2Input) -> str:
         parts.append(f"COUNT_ALL({p.count_col}) {count_op} {count_val}")
         return " AND ".join(parts)
 
+    # Fixed-day promo absence: date window + action key check + count zero
+    if sub == "campaign_absent_fixed_days":
+        date_col = get_date_col(p.table_name)
+        n_days = p.N if p.N is not None else 0
+        return (
+            f"{date_col} >= CurrentTime-{n_days}DAYS "
+            f"AND {p.flag_col} ${{operator}} ${{value}} "
+            f"AND COUNT_ALL({p.count_col}) = 0"
+        )
+
     # Date column used as comparison value + COUNT_ALL > 0
     # Example: EXPIRY_DAYS → RE_TRANS_DT ${op} ${val} AND COUNT_ALL(RE_REFILL_TYPE)__groupby_RE_REFILL_ID > 0
     if sub == "date_value_count":
@@ -710,15 +732,23 @@ def resolve_track5(p: Track5Input) -> str:
     cc = t5["campaign_check"]
 
     if sub == "bonus_not_sent_ak":
+        cols = get_campaign_check_cols(p.table_name, sub)
+        sent_date_col  = p.sent_date_col  or cols.get("sent_date_col", "")
+        action_key_col = p.action_key_col or cols.get("action_key_col", "")
+        msisdn_col     = p.msisdn_col     or cols.get("msisdn_col", "")
         return cc["template_bonus_not_sent_ak"] \
-                .replace("{sent_date_col}", p.sent_date_col) \
-                .replace("{action_key_col}", p.action_key_col) \
-                .replace("{msisdn_col}", p.msisdn_col)
+                .replace("{sent_date_col}", sent_date_col) \
+                .replace("{action_key_col}", action_key_col) \
+                .replace("{msisdn_col}", msisdn_col)
     if sub == "promo_sent_ak":
+        cols = get_campaign_check_cols(p.table_name, sub)
+        sent_date_col  = p.sent_date_col  or cols.get("sent_date_col", "")
+        action_key_col = p.action_key_col or cols.get("action_key_col", "")
+        msisdn_col     = p.msisdn_col     or cols.get("msisdn_col", "")
         return cc["template_promo_sent_ak"] \
-                .replace("{sent_date_col}", p.sent_date_col) \
-                .replace("{action_key_col}", p.action_key_col) \
-                .replace("{msisdn_col}", p.msisdn_col)
+                .replace("{sent_date_col}", sent_date_col) \
+                .replace("{action_key_col}", action_key_col) \
+                .replace("{msisdn_col}", msisdn_col)
     if sub == "promo_delivered_segment":
         return cc["template_promo_delivered_segment"] \
                 .replace("{sent_date_col}", p.sent_date_col) \

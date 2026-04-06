@@ -234,10 +234,23 @@ Fields extracted:
 - `parameter_unit`
 - `parameter_description`
 - `is_composite`
+- `groupby_entity` in the current codebase
 
 This track is intended for templates where something is provided later at rule-creation time, such as:
 
 - `${X}`
+- `${value}`
+- `${operator}`
+
+Current routing behavior in the codebase:
+
+- subscription-style parameterized checks are routed to dedicated Track 5 subscription templates, for example `subscription_x_days_present` and `subscription_x_days_absent`
+- generic parameterized `COUNT` cases are routed to the `count_x_days` template, which renders `COUNT_ALL(...)`
+- non-COUNT generic parameterized KPI cases still use the `sum_x_days` path
+- some campaign-specific parameterized cases are handled by dedicated Track 5 campaign subtypes in the template engine, but only when the payload builder explicitly selects them
+
+Additional placeholder examples used by this track:
+
 - `${NoOfDays}`
 - product IDs
 - plan IDs

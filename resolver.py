@@ -244,6 +244,7 @@ def resolve(
     # ── Track 5 — PARAMETERIZED (leaf) ────────────────────────────────────────
     elif track == 5:
         extracted = extract_track5(condition)
+        logger.info("%s  Track5 extracted: %s", indent, extracted.model_dump_json())
         payload   = build_track5_payload(extracted)
         template  = call_template_engine(5, payload)
         vp_name   = generate_vp_name(5, extracted.model_dump())

@@ -603,6 +603,15 @@ column_metadata:
     groupby_mappings:
       action_date: "L_ACTION_KEY,L_PROMO_SENT_DATE"
       subscriber: L_AGG_MSISDN
+    campaign_check_mappings:
+      bonus_not_sent_ak:
+        sent_date_col: L_PROMO_SENT_DATE
+        action_key_col: LC_SEGMENT_NAME
+        msisdn_col: L_AGG_MSISDN
+      promo_sent_ak:
+        sent_date_col: L_PROMO_SENT_DATE
+        action_key_col: L_ACTION_KEY
+        msisdn_col: L_AGG_MSISDN
 
   LIFECYCLE_BONUS:
     date_col: L_BONUS_SENT_DATE
