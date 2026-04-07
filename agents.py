@@ -73,6 +73,7 @@ class Track2Output(BaseModel):
     is_composite:    bool
     # ── FIX 1: groupby support ────────────────────────────────────────────
     groupby_entity:  Optional[str] = None   # "subscriber", "device", "product", "product_description"
+    threshold:       Optional[int] = None   # "at most N times" → e.g. 1, 2, 3, 4
 
 
 class Track3Output(BaseModel):
@@ -153,7 +154,7 @@ Your job is to read a natural language description of a KPI or condition and cla
 
 - Track 1: TIME_SERIES — A metric aggregated (SUM, AVG, COUNT) over a time window: rolling weeks, specific months (M1/M2/M3), last N days, MTD, LMTD.
 - Track 2: STATIC_FLAG — A dimensional state, boolean flag, subscription status, segment attribute, OR count-based existence/absence check. Includes: "count of X is zero", "count of X grouped by Y", "X not sent per subscriber", "flag exists/not exists", "count per device/product". No time-series aggregation over a sliding window.
-- Track 3: SNAPSHOT — A single point-in-time value. Most recent, latest, or current record. No accumulation over a period.
+- Track 3: SNAPSHOT — A single point-in-time value, or a presence check on a location or attribute within a time window. Most recent, latest, current record, or "was ever present in".
 - Track 4: COMPARATIVE — Compares a KPI against itself over two periods, or two different KPIs (percentage change, ratio, drop, growth).
 - Track 5: PARAMETERIZED — Time window or product/plan is not fixed; will be supplied at runtime (e.g. "last N days", "specified product").
 - Track 6: JOIN_CHECK — A condition that joins on a runtime subscriber/device variable (e.g. "matches OM_MSISDN", "join on MSISDN", "where device ID equals HBB_imeiNumber", "MSISDN matches OM_CHECK_MSISDN"). Always involves a runtime variable like OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, or LT_DEVICE_ID.
@@ -164,11 +165,22 @@ Rules:
 3. Yes/no, exists/not-exists, subscribed/not-subscribed → Track 2.
 4. Ratio, percentage drop/increase, comparison between two metrics or two periods → Track 4.
 5. Variable placeholders like "N days", "specified", "given", "any" → Track 5.
-6. Doubt between Track 1 and Track 3: "total/sum/average/count" implied → Track 1. "latest/current value/last known/as of now" → Track 3.
+6. Doubt between Track 1 and Track 3: ask whether the COUNT or time window is measuring a metric, or only confirming presence.
+   - "how many times", "total count", "frequency", "visit count >= 10" → the count IS the metric → Track 1.
+   - "at least once", "ever", "detected", "found", "present", "appeared" → COUNT is only confirming presence, the real subject is a location or attribute → Track 3.
+   - A time window alone does not make a condition Track 1. Ask: is the window accumulating a metric, or just scoping a presence check?
 7. Doubt between Track 1 and Track 4: two time periods compared, or drop/growth/ratio → Track 4.
-8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (these are existence/absence checks expressed through counts, not time-series aggregations).
+8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (existence/absence checks expressed through counts, not time-series aggregations).
 9. "X not triggered/sent per subscriber", "X per device", or "no record per entity" → Track 2 (per-entity presence checks are flags, not time-series).
 10. If the condition mentions matching or joining on a runtime variable name (OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, LT_DEVICE_ID) → Track 6, regardless of whether it also has a date range or count check.
+
+Examples:
+- "customers detected in region Northoman at least once in the last 30 days" → Track 3. Subject is location, COUNT confirms presence only.
+- "customers whose visit count to region X in the last 30 days >= 10" → Track 1. The count itself is the metric being measured.
+- "total revenue in the last 30 days >= 500" → Track 1. SUM over a time window.
+- "customer is currently subscribed to product X" → Track 2. Static state check.
+- "revenue drop of more than 20% compared to last month" → Track 4. Comparison across two periods.
+- "customers who received a bonus for action key X in the last N days" → Track 5. N is a runtime variable.
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -243,6 +255,12 @@ Rules:
 4. "Next best offer exists" → expected_state = EXISTS.
 5. "Not subscribed to product" → expected_state = NOT_SUBSCRIBED.
 6. If the condition mentions a time constraint like 'today', 'last N days', 'last N months', or 'this month', extract it into the time_constraint field. If no time constraint is mentioned, leave it as null.
+7. If the condition says "at most N times", "fewer than N times", "maximum N times", "no more than N times", or "≤ N times":
+   - Set expected_state = SUBSCRIBED
+   - Extract the count limit into the threshold field
+   Examples:
+   "subscribed at most 1 time in the last 30 days" → expected_state: SUBSCRIBED, threshold: 1
+   "subscribed at most 4 times in the last 30 days" → expected_state: SUBSCRIBED, threshold: 4
 
 ## Groupby Detection
 
@@ -272,7 +290,8 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
   "time_window": null,
   "time_constraint": null,
   "is_composite": false,
-  "groupby_entity": null
+  "groupby_entity": null,
+  "threshold": null
 }"""
 
 

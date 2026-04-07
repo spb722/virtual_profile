@@ -105,20 +105,62 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
 def build_track2_payload(extracted: Track2Output) -> dict:
     """
     Track 2 static flags.
-    Now passes through groupby_entity if the agent extracted one.
+    Routes subscription sub_types to id_col-based templates.
+    If a time_constraint is present on a subscription check, switches to the
+    timed variant (subscribed_within_n_days / not_subscribed_within_n_days).
+    Passes groupby_entity through if extracted.
     """
     kpi_info = resolve_kpi(extracted.kpi)
     promo_payload = _build_track2_fixed_promo_absence_payload(extracted, kpi_info)
     if promo_payload:
         payload = promo_payload
     else:
-        payload = {
-            "table_name":     kpi_info["table_name"],
-            "sub_type":       _map_state_to_subtype(extracted.expected_state),
-            "flag_col":       kpi_info["kpi_col"],
-            "count_col":      kpi_info["kpi_col"],
-            "is_composite":   extracted.is_composite
-        }
+        base_sub_type = _map_state_to_subtype(extracted.expected_state)
+
+        # ── "at most N times" threshold branch ───────────────────────────
+        if extracted.threshold is not None and base_sub_type == "subscribed":
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     "subscription_threshold",
+                "id_col":       kpi_info["kpi_col"],
+                "threshold":    extracted.threshold,
+                "is_composite": extracted.is_composite,
+            }
+            if extracted.time_constraint:
+                payload["N"] = extracted.time_constraint.value
+
+        # ── Subscription + time window → timed variant ────────────────────
+        elif base_sub_type in ("not_subscribed", "subscribed") and extracted.time_constraint:
+            timed_sub_type = (
+                "not_subscribed_within_n_days"
+                if base_sub_type == "not_subscribed"
+                else "subscribed_within_n_days"
+            )
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     timed_sub_type,
+                "id_col":       kpi_info["kpi_col"],
+                "N":            extracted.time_constraint.value,
+                "is_composite": extracted.is_composite,
+            }
+        # ── Plain subscription (no time window, no threshold) ─────────────
+        elif base_sub_type in ("not_subscribed", "subscribed"):
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     base_sub_type,
+                "id_col":       kpi_info["kpi_col"],
+                "is_composite": extracted.is_composite,
+            }
+        # ── All other Track 2 sub_types — unchanged ───────────────────────
+        else:
+            payload = {
+                "table_name":   kpi_info["table_name"],
+                "sub_type":     base_sub_type,
+                "flag_col":     kpi_info["kpi_col"],
+                "count_col":    kpi_info["kpi_col"],
+                "is_composite": extracted.is_composite,
+            }
+
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity

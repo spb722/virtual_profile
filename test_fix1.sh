@@ -1,102 +1,263 @@
 #!/bin/bash
 # =============================================================================
-# FIX 1 END-TO-END TESTS (Resolver API — port 8001)
+# TRACK 3 — GEO + SNAPSHOT END-TO-END TESTS (Resolver API — port 8001)
 # =============================================================================
 # These test the FULL pipeline: NL → classifier → agent → KPI mapper → template
-# The key thing being validated: does the LLM agent correctly extract groupby_entity?
+# Validates: correct sub_type routing, N value, and final parent_condition output
 #
-# NOTE: These require both services running AND the VP verification API reachable.
-# If KPI mapping fails for Airtel KPIs, the test will 422 — that's a separate issue
-# (KPI catalog coverage), not a groupby issue.
+# WHAT TO CHECK FOR EACH TEST:
+#   - Track classification  : should say Track 3 (SNAPSHOT)
+#   - sub_type              : should match the group label in each test
+#   - N value               : should match the number in the input sentence
+#   - parent_condition      : should match the expected template shown in each test
 # =============================================================================
 
 BASE="http://localhost:8001/resolve"
 
+# =============================================================================
+# GROUP 1 — geo_last_n_days
+# Expected parent_condition:
+#   dpi_geo_location_event_date >= CurrentTime-{N}DAYS
+#   AND dpi_geo_location_region ${operator} ${value}
+#   AND COUNT_ALL(GEO_LOCATION_MSISDN) >= 1
+# =============================================================================
+
 echo "======================================================================"
-echo "E2E TEST 1: Simple groupby — count per subscriber"
-echo "Target VP: CATEGORY_COUNT_CHECK"
-echo "Expected agent output: groupby_entity='subscriber'"
+echo "GEO TEST 1a: geo_last_n_days — 30 days"
+echo "Expected sub_type: geo_last_n_days | N: 30"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Count of action keys grouped by subscriber"
+  "condition": "Customers who have been detected in region northoman at least once in the last 30 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 2: Groupby product — refill type count"
-echo "Target VP: EXPIRY_DAYS"
-echo "Expected agent output: groupby_entity='product'"
+echo "GEO TEST 1b: geo_last_n_days — 7 days"
+echo "Expected sub_type: geo_last_n_days | N: 7"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Refill type count grouped by product, compared against date"
+  "condition": "Customers who have been detected in region northoman at least once in the last 7 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 3: Multi-column groupby — product + description"
-echo "Target VP: Post_Expiry_ESB_Description_Count_1"
-echo "Expected agent output: groupby_entity='product_description'"
+echo "GEO TEST 1c: geo_last_n_days — 90 days"
+echo "Expected sub_type: geo_last_n_days | N: 90"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Refill ID and ESB description not null, refill type count grouped by product and description"
+  "condition": "Customers who have been detected in region northoman at least once in the last 90 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 4: Today + groupby — SSO check absent"
-echo "Target VP: RECHARGE_CHECK_SSO"
-echo "Expected agent output: groupby_entity='subscriber'"
+echo "GEO TEST 1d: geo_last_n_days — yesterday (N should resolve to 1)"
+echo "Expected sub_type: geo_last_n_days | N: 1"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Action key not triggered today for SSO subscriber, counted per subscriber"
+  "condition": "Customers who were found in region northoman yesterday"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 2 — geo_last_n_months
+# Expected parent_condition:
+#   dpi_geo_location_event_date >= CurrentMonth-{N}MONTHS
+#   AND dpi_geo_location_region ${operator} ${value}
+#   AND COUNT_ALL(GEO_LOCATION_MSISDN) >= 1
+# =============================================================================
+
+echo "======================================================================"
+echo "GEO TEST 2a: geo_last_n_months — 2 months"
+echo "Expected sub_type: geo_last_n_months | N: 2"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers who have been detected in region northoman at least once in the last 2 months"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 5: Today + groupby — activation present"
-echo "Target VP: RECHGARGE_ACTIVATION_CHECK"
-echo "Expected agent output: groupby_entity='subscriber'"
+echo "GEO TEST 2b: geo_last_n_months — 6 months"
+echo "Expected sub_type: geo_last_n_months | N: 6"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Action key activated today with SSO subscriber present, at least one per subscriber"
+  "condition": "Customers who were present in region northoman at least once in the last 6 months"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 3 — geo_current
+# Expected parent_condition:
+#   {lon_col} <> NULL AND {lat_col} <> NULL AND {geo_name_col} ${operator} ${value}
+# =============================================================================
+
+echo "======================================================================"
+echo "GEO TEST 3a: geo_current — current location check"
+echo "Expected sub_type: geo_current | N: null"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers whose current location is region northoman"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 6: Track 5 + multi-col groupby"
-echo "Target VP: L_PROMO_SENT"
-echo "Expected agent output: groupby_entity='action_date'"
+echo "GEO TEST 3b: geo_current — currently present"
+echo "Expected sub_type: geo_current | N: null"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Promo sent for action key in last X days, grouped by action key and date"
+  "condition": "Customers currently present in region northoman"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 4 — snapshot_max_check
+# Expected parent_condition:
+#   {id_col} <> NULL AND MAX({ref_col}) > 0
+# =============================================================================
+
+echo "======================================================================"
+echo "SNAPSHOT TEST 4a: snapshot_max_check — prepaid voice revenue"
+echo "Expected sub_type: snapshot_max_check | N: null"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers who have prepaid voice revenue on event date >= 500 and MAX prepaid voice revenue is greater than zero"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 7: NO groupby — should produce null groupby_entity"
-echo "Target VP: ACTION_COUNT (works today, no groupby needed)"
+echo "SNAPSHOT TEST 4b: snapshot_max_check — HBB ID"
+echo "Expected sub_type: snapshot_max_check | N: null"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Action key count is zero"
+  "condition": "Customers with HBB add-on component >= 500 who have a valid HBB ID and MAX HBB ID is not null"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 5 — snapshot_by_date_boundary
+# Expected parent_condition:
+#   {date_col} = CurrentTime-{N}DAYS
+#   AND {id_col} ${operator} ${value}
+#   AND COUNT_ALL({count_col}) = 0
+# =============================================================================
+
+echo "======================================================================"
+echo "SNAPSHOT TEST 5a: snapshot_by_date_boundary — yesterday"
+echo "Expected sub_type: snapshot_by_date_boundary | N: 1"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers who activated HBB add-on component >= 500 yesterday and have no active fixed line"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "E2E TEST 8: NO groupby — existing working VP"
-echo "Target VP: MO1 (simple flag check)"
+echo "SNAPSHOT TEST 5b: snapshot_by_date_boundary — one day ago"
+echo "Expected sub_type: snapshot_by_date_boundary | N: 1"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Service type is not null"
+  "condition": "Customers who activated HBB add-on component >= 500 one day ago and have no active fixed line"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 6 — snapshot_by_id with separate join key
+# Expected parent_condition:
+#   HBBID = ${HBBID} AND HBBAddon_Inact_Date ${operator} ${value}
+# =============================================================================
+
+echo "======================================================================"
+echo "SNAPSHOT TEST 6a: snapshot_by_id — separate join key (HBBID)"
+echo "Expected sub_type: snapshot_by_id | id_col: HBBID"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers with HBB ID matching the specified ID and HBB add-on deactivation date >= 500"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "ALL E2E TESTS COMPLETE"
+echo "SNAPSHOT TEST 6b: snapshot_by_id — separate join key (HBB_ID variant)"
+echo "Expected sub_type: snapshot_by_id | id_col: HBB_ID"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers with the specified HBB ID and HBB add-on deactivation date >= 500"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 7 — snapshot_by_id normal (no separate join key)
+# Expected parent_condition:
+#   {value_col} ${operator} ${value}
+# =============================================================================
+
+echo "======================================================================"
+echo "SNAPSHOT TEST 7a: snapshot_by_id — plain attribute check"
+echo "Expected sub_type: snapshot_by_id | id_col: null"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers whose prepaid voice revenue on event date >= 500"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "SNAPSHOT TEST 7b: snapshot_by_id — plain date attribute check"
+echo "Expected sub_type: snapshot_by_id | id_col: null"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers whose HBB add-on deactivation date >= 500"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 8 — Classifier boundary cases
+# These confirm the Track 1 vs Track 3 disambiguation is working correctly
+# =============================================================================
+
+echo "======================================================================"
+echo "BOUNDARY TEST 8a: should be Track 3 — presence check with time window"
+echo "Expected: Track 3 (SNAPSHOT)"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers who appeared in region northoman in the last 15 days"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "BOUNDARY TEST 8b: should be Track 3 — ever found"
+echo "Expected: Track 3 (SNAPSHOT)"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers who were ever found in region northoman in the last 60 days"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "BOUNDARY TEST 8c: should be Track 1 — count IS the metric"
+echo "Expected: Track 1 (TIME_SERIES) — must NOT go to Track 3"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers whose visit count to region northoman in the last 30 days is greater than 10"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "BOUNDARY TEST 8d: should be Track 1 — total detections as metric"
+echo "Expected: Track 1 (TIME_SERIES) — must NOT go to Track 3"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "Customers whose total number of detections in region northoman in the last 30 days >= 5"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "ALL TRACK 3 TESTS COMPLETE"
 echo "======================================================================"
 echo ""
-echo "WHAT TO CHECK:"
-echo "  - Tests 1-6: parent_condition should contain __groupby_ suffix"
-echo "  - Tests 7-8: parent_condition should NOT contain __groupby_"
-echo "  - If any test returns 422 with 'No KPI/profile found': that's a KPI"
-echo "    mapper gap (VP verification API doesn't know the Airtel KPI), not"
-echo "    a groupby issue. File that separately."
+echo "QUICK PASS/FAIL CHECKLIST:"
+echo "  Group 1 (1a-1d) : track=3, sub_type=geo_last_n_days,         N matches input"
+echo "  Group 2 (2a-2b) : track=3, sub_type=geo_last_n_months,       N matches input"
+echo "  Group 3 (3a-3b) : track=3, sub_type=geo_current,             N=null"
+echo "  Group 4 (4a-4b) : track=3, sub_type=snapshot_max_check,      N=null"
+echo "  Group 5 (5a-5b) : track=3, sub_type=snapshot_by_date_boundary, N=1"
+echo "  Group 6 (6a-6b) : track=3, sub_type=snapshot_by_id,          id_col present"
+echo "  Group 7 (7a-7b) : track=3, sub_type=snapshot_by_id,          id_col=null"
+echo "  Group 8 (8a-8b) : track=3 SNAPSHOT  — presence check cases"
+echo "  Group 8 (8c-8d) : track=1 TIME_SERIES — must NOT be Track 3"
