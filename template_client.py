@@ -128,15 +128,78 @@ def build_track2_payload(extracted: Track2Output) -> dict:
 def build_track3_payload(extracted: Track3Output) -> dict:
     """
     Build Track 3 snapshot payload.
+    Routes to the correct sub_type based on what the LLM extracted.
     """
     kpi_info = resolve_kpi(extracted.kpi)
+    sub_type = extracted.sub_type or "snapshot_by_id"
+
+    if sub_type == "geo_last_n_days":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "geo_last_n_days",
+            "N":            extracted.N,
+            "region_col":   kpi_info["kpi_col"],
+            "msisdn_col":   get_msisdn_col(kpi_info["table_name"]),
+            "is_composite": extracted.is_composite,
+        }
+
+    if sub_type == "geo_last_n_months":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "geo_last_n_months",
+            "N":            extracted.N,
+            "region_col":   kpi_info["kpi_col"],
+            "msisdn_col":   get_msisdn_col(kpi_info["table_name"]),
+            "is_composite": extracted.is_composite,
+        }
+
+    if sub_type == "geo_current":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "geo_current",
+            "region_col":   kpi_info["kpi_col"],
+            "is_composite": extracted.is_composite,
+        }
+
+    if sub_type == "snapshot_max_check":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "snapshot_max_check",
+            "id_col":       kpi_info["kpi_col"],
+            "ref_col":      kpi_info["kpi_col"],
+            "is_composite": extracted.is_composite,
+        }
+
+    if sub_type == "snapshot_by_date_boundary":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "snapshot_by_date_boundary",
+            "N":            extracted.N,
+            "id_col":       kpi_info["kpi_col"],
+            "count_col":    kpi_info["kpi_col"],
+            "is_composite": extracted.is_composite,
+        }
+
+    # default — snapshot_by_id
     return {
         "table_name":   kpi_info["table_name"],
         "sub_type":     "snapshot_by_id",
+        "id_col":       extracted.id_col or kpi_info["kpi_col"],
         "value_col":    kpi_info["kpi_col"],
-        "id_col":       kpi_info["kpi_col"],
-        "is_composite": extracted.is_composite
+        "is_composite": extracted.is_composite,
     }
+
+
+def get_msisdn_col(table_name: str) -> str:
+    """
+    Look up the MSISDN column for a table from YAML column_metadata.kpi_examples.
+    Falls back to "MSISDN" if not found.
+    """
+    meta = _COLUMN_META.get(table_name, {})
+    for col in meta.get("kpi_examples", []):
+        if "msisdn" in col.lower():
+            return col
+    return "MSISDN"
 
 
 def build_track5_payload(extracted: Track5Output) -> dict:
