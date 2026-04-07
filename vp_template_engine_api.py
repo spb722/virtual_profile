@@ -131,7 +131,8 @@ class Track3Input(BaseModel):
         "snapshot_max_check",
         "snapshot_by_date_boundary",
         "geo_current",
-        "geo_last_n_days"
+        "geo_last_n_days",
+        "geo_last_n_months"
     ]
     id_col: Optional[str] = None
     value_col: Optional[str] = None
@@ -655,6 +656,13 @@ def resolve_track3(p: Track3Input) -> str:
     if sub == "geo_last_n_days":
         date_col = get_date_col(p.table_name)
         return t3["geo_location"]["template_last_n_days"] \
+                .replace("{date_col}", date_col) \
+                .replace("{N}", str(p.N)) \
+                .replace("{region_col}", p.region_col) \
+                .replace("{msisdn_col}", p.msisdn_col)
+    if sub == "geo_last_n_months":
+        date_col = get_date_col(p.table_name)
+        return t3["geo_location"]["template_last_n_months"] \
                 .replace("{date_col}", date_col) \
                 .replace("{N}", str(p.N)) \
                 .replace("{region_col}", p.region_col) \

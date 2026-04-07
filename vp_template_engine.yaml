@@ -349,6 +349,11 @@ track_3:
       {date_col} >= CurrentTime-{N}DAYS
       AND {region_col} ${operator} ${value}
       AND COUNT_ALL({msisdn_col}) >= 1
+    # Location within last N completed months
+    template_last_n_months: >
+      {date_col} >= CurrentMonth-{N}MONTHS
+      AND {region_col} ${operator} ${value}
+      AND COUNT_ALL({msisdn_col}) >= 1
 
 
 # =============================================================================

@@ -84,6 +84,20 @@ class Track3Output(BaseModel):
     time_window:  str
     is_composite: bool
 
+    # ── NEW FIELDS ────────────────────────────────────────────────────────────
+    sub_type:  Optional[Literal[
+                   "snapshot_by_id",
+                   "snapshot_max_check",
+                   "snapshot_by_date_boundary",
+                   "geo_last_n_days",
+                   "geo_last_n_months",
+                   "geo_current"
+               ]] = None
+
+    N:          Optional[int]  = None   # numeric value from "last 30 days" / "last 2 months"
+    time_unit:  Optional[Literal["DAYS", "MONTHS"]] = None
+    id_col:     Optional[str]  = None   # join key when different from the KPI column
+
 
 class Track4Output(BaseModel):
     track:           int
@@ -265,29 +279,146 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 TRACK3_SYSTEM = """You are an extraction agent for a telecom rule engine system.
 You will receive a natural language description already classified as Track 3: SNAPSHOT.
 
-Fields to extract:
-- kpi: the metric or attribute being retrieved (e.g. "account balance", "geo location", "last promotion date")
-- qualifier: LATEST | CURRENT | LAST_OCCURRENCE
-- kpi_type: NUMERIC | DATE | CATEGORICAL
-- aggregation: LATEST | LAST_VALUE
-- time_window: "CURRENT" (always)
-- is_composite: false
+Track 3 means: a single point-in-time value — the most recent, latest, or current record
+for a customer. No accumulation, no sum, no average over a period.
 
-Rules:
-1. "Current account balance" → qualifier=CURRENT, kpi_type=NUMERIC.
-2. "Date of last promotion" → qualifier=LAST_OCCURRENCE, kpi_type=DATE.
-3. "Latest known geographical location" → qualifier=LATEST, kpi_type=CATEGORICAL.
-4. If accumulation is implied (total/sum/average) — likely misclassified as Track 3. Extract anyway.
+────────────────────────────────────────────────────────────────
+FIELDS TO EXTRACT
+────────────────────────────────────────────────────────────────
+
+kpi          : the metric or attribute being checked
+               (e.g. "account balance", "geo location", "HBB add-on deactivation date")
+
+qualifier    : LATEST | CURRENT | LAST_OCCURRENCE
+
+kpi_type     : NUMERIC | DATE | CATEGORICAL
+
+aggregation  : LATEST | LAST_VALUE
+
+time_window  : always "CURRENT"
+
+is_composite : always false
+
+sub_type     : which template to use — pick exactly one from this list:
+
+               "snapshot_by_id"
+                   → A customer record is matched by an ID or attribute value.
+                   → No date window. No MAX. No COUNT.
+                   → Example: "customers whose HBB add-on deactivation date >= 500"
+
+               "snapshot_max_check"
+                   → Condition uses MAX(column) to confirm the field is non-null or non-zero.
+                   → Example: "customers who have a valid HBB ID and MAX(HBB_ID) <> NULL"
+
+               "snapshot_by_date_boundary"
+                   → Condition checks a fixed date offset (e.g. yesterday, N days ago)
+                     combined with a COUNT = 0 or COUNT > 0 check on another column.
+                   → Always uses DAYS. Never months.
+                   → Example: "customers who activated add-on yesterday and have no fixed line"
+
+               "geo_last_n_days"
+                   → Geographic location check within the last N DAYS.
+                   → Example: "customers detected in region >= 500 at least once in the last 30 days"
+
+               "geo_last_n_months"
+                   → Geographic location check within the last N MONTHS.
+                   → Example: "customers detected in region >= 500 at least once in the last 2 months"
+
+               "geo_current"
+                   → Current location only. No time window at all.
+                   → Example: "customers whose current location is region >= 500"
+
+N            : the integer from the time window phrase.
+               - "last 30 days"   → N = 30
+               - "last 2 months"  → N = 2
+               - "yesterday"      → N = 1
+               - No time window   → N = null
+
+time_unit    : "DAYS" or "MONTHS" — the unit that N belongs to.
+               - If sub_type is geo_last_n_days or snapshot_by_date_boundary → always "DAYS"
+               - If sub_type is geo_last_n_months                            → always "MONTHS"
+               - If sub_type has no time window (snapshot_by_id, snapshot_max_check,
+                 geo_current)                                                → null
+
+id_col       : ONLY fill this when the condition contains a runtime variable match
+               on a column that is DIFFERENT from the kpi column.
+               - Example: "HBBID = $HBBID AND HBBAddon_Inact_Date >= 500"
+                 → kpi = "HBB add-on deactivation date", id_col = "HBBID"
+               - If there is no separate join key → id_col = null
+
+────────────────────────────────────────────────────────────────
+ROUTING RULES — read top to bottom, first match wins
+────────────────────────────────────────────────────────────────
+
+1. Contains "MAX(col)" or "MAX(col) <> NULL" or "MAX(col) > 0"
+   → sub_type = "snapshot_max_check", N = null, time_unit = null
+
+2. Contains a date = CurrentTime-NDAYS pattern AND a COUNT check on another column
+   → sub_type = "snapshot_by_date_boundary"
+   → N = that number, time_unit = "DAYS"
+
+3. Contains geo / region / location AND a time window in DAYS
+   → sub_type = "geo_last_n_days"
+   → N = that number, time_unit = "DAYS"
+
+4. Contains geo / region / location AND a time window in MONTHS
+   → sub_type = "geo_last_n_months"
+   → N = that number, time_unit = "MONTHS"
+
+5. Contains geo / region / location AND no time window
+   → sub_type = "geo_current"
+   → N = null, time_unit = null
+
+6. Contains a runtime variable on one column ($VAR) AND a separate KPI column
+   → sub_type = "snapshot_by_id"
+   → id_col = the column with the $VAR match
+   → kpi = the other column being filtered
+
+7. All other cases
+   → sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = null
+
+────────────────────────────────────────────────────────────────
+EXAMPLES
+────────────────────────────────────────────────────────────────
+
+Input : "Customers detected in region >= 500 at least once in the last 30 days"
+Output: sub_type = "geo_last_n_days", N = 30, time_unit = "DAYS", id_col = null
+
+Input : "Customers detected in region >= 500 at least once in the last 2 months"
+Output: sub_type = "geo_last_n_months", N = 2, time_unit = "MONTHS", id_col = null
+
+Input : "Customers whose current location is region >= 500"
+Output: sub_type = "geo_current", N = null, time_unit = null, id_col = null
+
+Input : "Customers with HBB add-on component >= 500 who have a valid HBB ID and MAX(HBB_ID) <> NULL"
+Output: sub_type = "snapshot_max_check", N = null, time_unit = null, id_col = null
+
+Input : "Customers who activated HBB add-on yesterday and have no active fixed line"
+Output: sub_type = "snapshot_by_date_boundary", N = 1, time_unit = "DAYS", id_col = null
+
+Input : "Customers with HBB ID matching $HBBID and HBB add-on deactivation date >= 500"
+Output: sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = "HBBID"
+
+Input : "Customers whose prepaid voice revenue on event date >= 500"
+Output: sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = null
+
+────────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+────────────────────────────────────────────────────────────────
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
-  "track": 3,
-  "kpi": "<kpi>",
-  "qualifier": "<LATEST|CURRENT|LAST_OCCURRENCE>",
-  "kpi_type": "<NUMERIC|DATE|CATEGORICAL>",
-  "aggregation": "<LATEST|LAST_VALUE>",
-  "time_window": "CURRENT",
-  "is_composite": false
+  "track":        3,
+  "kpi":          "<kpi>",
+  "qualifier":    "<LATEST|CURRENT|LAST_OCCURRENCE>",
+  "kpi_type":     "<NUMERIC|DATE|CATEGORICAL>",
+  "aggregation":  "<LATEST|LAST_VALUE>",
+  "time_window":  "CURRENT",
+  "is_composite": false,
+  "sub_type":     "<snapshot_by_id|snapshot_max_check|snapshot_by_date_boundary|geo_last_n_days|geo_last_n_months|geo_current>",
+  "N":            <integer or null>,
+  "time_unit":    "<DAYS|MONTHS|null>",
+  "id_col":       "<column_name or null>"
 }"""
 
 
