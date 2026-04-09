@@ -55,11 +55,17 @@ def generate_vp_name(
             tw_val  = getattr(tw, "value", None)
             tw_unit = getattr(tw, "unit", "DAY") or "DAY"
 
-        kpi_info = resolve_kpi(
-            extracted.get("kpi", ""),
-            extracted.get("aggregation", "SUM")
-        )
-        col = _clean_col(kpi_info["kpi_col"])
+        # Multi-KPI formula path: use formula_name directly, skip KPI mapper call
+        formula_name = extracted.get("formula_name")
+        kpi_list     = extracted.get("kpi_list")
+        if kpi_list and formula_name:
+            col = formula_name.upper().replace(" ", "_")
+        else:
+            kpi_info = resolve_kpi(
+                extracted.get("kpi", ""),
+                extracted.get("aggregation", "SUM")
+            )
+            col = _clean_col(kpi_info["kpi_col"])
 
         if tw_type == "FIXED_MONTH":
             return f"M{tw_val}_{col}"

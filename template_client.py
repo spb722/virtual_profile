@@ -27,7 +27,7 @@ import requests
 import yaml
 
 from agents import Track1Output, Track2Output, Track3Output, Track5Output, Track6Output
-from kpi_mapper import resolve_kpi
+from kpi_mapper import resolve_kpi, resolve_kpi_list
 
 # Load YAML column metadata once at startup (same file the template engine uses)
 _YAML_PATH = os.path.join(os.path.dirname(__file__), "vp_template_engine.yaml")
@@ -83,9 +83,40 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
     Convert Track1Output → template engine request body.
     Resolves kpi text → table_name + kpi_col via KPI mapper.
     date_col is auto-resolved inside the template engine from table_name.
+
+    Multi-KPI path: when extracted.kpi_list is set, all KPIs are resolved in
+    one batch call. A formula string and null_guard_cols list are built and
+    passed to the template engine so it can render the virtual-KPI template.
     """
+    tw = extracted.time_window
+
+    # ── Multi-KPI formula path ────────────────────────────────────────────────
+    if extracted.kpi_list:
+        resolved_cols = resolve_kpi_list(extracted.kpi_list, extracted.aggregation)
+        op            = extracted.formula_op or "+"
+        formula       = op.join(r["kpi_col"] for r in resolved_cols)
+        null_guard_cols = [r["kpi_col"] for r in resolved_cols]
+        table_name    = resolved_cols[0]["table_name"]
+
+        payload = {
+            "table_name":      table_name,
+            "kpi_col":         null_guard_cols[0],   # required by Track1Input; formula takes precedence
+            "formula":         formula,
+            "null_guard_cols": null_guard_cols,
+            "aggregation":     extracted.aggregation,
+            "time_window": {
+                "type":  tw.type,
+                "value": tw.value,
+                "unit":  tw.unit,
+            },
+            "is_composite": extracted.is_composite,
+        }
+        if vp_name:
+            payload["vp_name"] = vp_name
+        return payload
+
+    # ── Single-KPI path (unchanged) ───────────────────────────────────────────
     kpi_info = resolve_kpi(extracted.kpi, extracted.aggregation)
-    tw       = extracted.time_window
     payload = {
         "table_name":  kpi_info["table_name"],
         "kpi_col":     kpi_info["kpi_col"],

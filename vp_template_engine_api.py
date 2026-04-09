@@ -71,6 +71,8 @@ class Track1Input(BaseModel):
     vp_name: Optional[str] = None
     filter_col: Optional[str] = None
     filter_val: Optional[str] = None
+    # Multi-KPI virtual formula: list of column names to guard (col > 0)
+    null_guard_cols: Optional[List[str]] = None
 
 
 class Track2Input(BaseModel):
@@ -442,6 +444,17 @@ def resolve_track1(p: Track1Input) -> str:
                        .replace("{filter_val}", p.filter_val) \
                        .replace("{agg}", p.aggregation) \
                        .replace("{kpi_col}", p.kpi_col)
+
+        # Multi-KPI virtual formula with per-column guards
+        if p.formula and p.null_guard_cols and p.vp_name:
+            guard_exprs = " AND ".join(f"{col} > 0" for col in p.null_guard_cols)
+            tmpl = ln["template_days_open_virtual_guarded"]
+            return tmpl.replace("{date_col}", date_col) \
+                       .replace("{N}", n) \
+                       .replace("{guard_exprs}", guard_exprs) \
+                       .replace("{agg}", p.aggregation) \
+                       .replace("{vp_name}", p.vp_name) \
+                       .replace("{formula}", p.formula)
 
         if p.formula and p.vp_name:
             tmpl = ln["template_no_date_virtual"]

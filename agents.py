@@ -56,6 +56,10 @@ class Track1Output(BaseModel):
     is_composite:  bool
     filter_col:    Optional[str]       = None
     filter_values: Optional[List[str]] = None
+    # ── Multi-KPI formula fields (mutually exclusive with single kpi path) ────
+    kpi_list:     Optional[List[str]] = None  # ["incoming call MOU", "outgoing call MOU"]
+    formula_op:   Optional[str]       = None  # "+" (default), future: "*"
+    formula_name: Optional[str]       = None  # short label: "SUM_MOU", "COMBINED_DATA_VOL"
 
 
 class Track2TimeConstraint(BaseModel):
@@ -170,6 +174,9 @@ Rules:
    - "at least once", "ever", "detected", "found", "present", "appeared" → COUNT is only confirming presence, the real subject is a location or attribute → Track 3.
    - A time window alone does not make a condition Track 1. Ask: is the window accumulating a metric, or just scoping a presence check?
 7. Doubt between Track 1 and Track 4: two time periods compared, or drop/growth/ratio → Track 4.
+   CRITICAL: "combined X and Y over last N days" is Track 1 (single time window, additive formula).
+   Track 4 is ONLY for comparing a metric across TWO DIFFERENT time periods, or computing a
+   ratio/percentage between two metrics. Never classify additive multi-column combinations as Track 4.
 8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (existence/absence checks expressed through counts, not time-series aggregations).
 9. "X not triggered/sent per subscriber", "X per device", or "no record per entity" → Track 2 (per-entity presence checks are flags, not time-series).
 10. If the condition mentions matching or joining on a runtime variable name (OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, LT_DEVICE_ID) → Track 6, regardless of whether it also has a date range or count check.
@@ -224,16 +231,31 @@ Rules:
    - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"]
    - "bonus sent for action keys HBB_key, PROMO_key" → filter_col: "action key", filter_values: ["HBB_key", "PROMO_key"]
    - "total revenue last 30 days" → filter_col: null, filter_values: null
+11. When the condition combines two or more KPIs ADDITIVELY from the same time window
+   (trigger phrases: "combined X and Y", "sum of X and Y", "X and Y together",
+   "X plus Y", "total X and Y", "X together with Y"):
+   - Set kpi_list to a list of plain English KPI phrases, one per column.
+     e.g. ["incoming call MOU", "outgoing call MOU"]
+   - Set formula_op to "+".
+   - Set formula_name to a short uppercase descriptive label for the combined KPI.
+     e.g. "SUM_MOU", "COMBINED_DATA_VOL", "TOTAL_CALL_MIN", "COMBINED_REVENUE"
+   - Set kpi to formula_name (same value — used as fallback identifier).
+   - Do NOT set filter_col or filter_values when kpi_list is set.
+   This rule applies ONLY when combining columns additively from ONE time window.
+   If the condition compares the SAME KPI across TWO time periods → that is Track 4.
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
   "track": 1,
-  "kpi": "<kpi>",
+  "kpi": "<kpi or formula_name when kpi_list is set>",
   "aggregation": "<AGG>",
   "time_window": {"type": "<TYPE>", "value": <number|null>, "unit": "<UNIT|null>"},
   "is_composite": false,
   "filter_col": null,
-  "filter_values": null
+  "filter_values": null,
+  "kpi_list": null,
+  "formula_op": null,
+  "formula_name": null
 }"""
 
 
