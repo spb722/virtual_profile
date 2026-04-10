@@ -426,6 +426,13 @@ def resolve_track1(p: Track1Input) -> str:
                            .replace("{agg}", p.aggregation) \
                            .replace("{kpi_col}", p.kpi_col)
 
+        if tw.unit == "DAY" and p.aggregation == "AVG" and p.vp_name:
+            tmpl = ln["template_days_avg"]
+            return tmpl.replace("{date_col}", date_col) \
+                       .replace("{N}", n) \
+                       .replace("{vp_name}", p.vp_name) \
+                       .replace("{kpi_col}", p.kpi_col)
+
         if not date_col or date_col == "null":
             if p.formula and p.vp_name:
                 tmpl = ln["template_no_date_virtual"]

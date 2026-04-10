@@ -116,6 +116,10 @@ track_1:
     template_days_closed: >
       {date_col} >= CurrentTime-{N}DAYS AND {date_col} < CurrentTime
       AND {agg}({kpi_col}) ${operator} ${value}
+    # Last N days with AVG formula — virtual KPI (e.g. LAST98DAYS_TOTAL_REVENUE)
+    template_days_avg: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
     # Last N completed months with AVG formula (e.g. AVG_ARPU_LAST3MONTHS)
     template_months_avg: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
