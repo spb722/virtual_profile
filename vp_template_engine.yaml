@@ -94,6 +94,23 @@ track_1:
       AND {agg}({kpi_col}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
+  # Template 1.6 — Fixed Week
+  # Use when: "last week", "previous week", "W1", "two weeks ago"
+  #
+  # Uses exact equality on CurrentWeek (completed calendar week).
+  # NOT the same as rolling week (CurrentTime-NDAYS day offsets).
+  #
+  # Examples: W1_TOTAL_REVENUE, W2_OG_CALL_REVENUE
+  # ---------------------------------------------------------------------------
+  fixed_week:
+    description: "Time-series metric for a specific completed calendar week"
+    template: >
+      {date_col} = CurrentWeek-{N}WEEKS AND {agg}({kpi_col}) ${operator} ${value}
+    template_virtual: >
+      {date_col} = CurrentWeek-{N}WEEKS
+      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+
+  # ---------------------------------------------------------------------------
   # Template 1.3 — Last N (Days or Months from current time)
   # Use when: "last 30 days", "last 90 days", "previous N days",
   #           "over the last 3 completed months" (AVG formula)
@@ -127,6 +144,14 @@ track_1:
     # Last N completed months with SUM/non-AVG aggregation
     template_months_sum: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
+      AND {agg}({kpi_col}) ${operator} ${value}
+    # Last N completed weeks with AVG formula (e.g. LAST4WEEKS_OG_CALL_REVENUE)
+    template_weeks_avg: >
+      {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
+      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+    # Last N completed weeks with SUM/non-AVG aggregation
+    template_weeks_sum: >
+      {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
       AND {agg}({kpi_col}) ${operator} ${value}
     # With dimension filter (e.g. dpi protocol)
     template_days_with_filter: >

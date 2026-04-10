@@ -79,6 +79,7 @@ Every condition maps to exactly one track:
 | `LAST_N` | Last N days/months, including phrasing like `past 30 days` or `over the last 3 months` | "last 30 days" |
 | `MTD` | Month to date, including `this month` or `current month` | "this month so far" |
 | `LMTD` | Last month to date | "same period last month" |
+| `FIXED_WEEK` | Completed calendar week offset | "last week", "two weeks ago" |
 
 ---
 
@@ -88,7 +89,8 @@ Every condition maps to exactly one track:
 |---|---|---|
 | 1 FIXED_MONTH | `M{N}_{KPI_COL}` | `M3_TOTAL_REVENUE` |
 | 1 ROLLING_WEEK | `ROLLING_W{N}_{KPI_COL}` | `ROLLING_W3_OG_CALL_REVENUE` |
-| 1 LAST_N | `LAST{N}DAYS_{KPI}` or `LAST{N}MONTHS_{KPI}` | `LAST30DAYS_DATA_REVENUE` |
+| 1 FIXED_WEEK | `W{N}_{KPI_COL}` | `W1_OG_CALL_REVENUE` |
+| 1 LAST_N | `LAST{N}DAYS_{KPI}` or `LAST{N}MONTHS_{KPI}` or `LAST{N}WEEKS_{KPI}` | `LAST30DAYS_DATA_REVENUE` |
 | 1 MTD | `MTD_{KPI_COL}` | `MTD_TOTAL_REVENUE` |
 | 1 LMTD | `LMTD_{KPI_COL}` | `LMTD_TOTAL_REVENUE` |
 | 2 | `{EXPECTED_STATE}_{KPI}` | `SUBSCRIBED_PRODUCT` |
@@ -213,6 +215,7 @@ POST /resolve
 - Doubt Track 1 vs 3: "total/sum/average" → Track 1; "latest/current/as of now" → Track 3
 - Doubt Track 1 vs 4: two periods compared, or drop/growth/ratio → Track 4
 - "N days", "specified", "given", "any X" placeholder → Track 5
+- "Last week" / "previous week" / "weekly average" → Track 1 (FIXED_WEEK or LAST_N+WEEK), NOT Track 3
 
 ---
 

@@ -69,10 +69,17 @@ def generate_vp_name(
 
         if tw_type == "FIXED_MONTH":
             return f"M{tw_val}_{col}"
+        elif tw_type == "FIXED_WEEK":
+            return f"W{tw_val}_{col}"
         elif tw_type == "ROLLING_WEEK":
             return f"ROLLING_W{tw_val}_{col}"
         elif tw_type == "LAST_N":
-            suffix = "MONTHS" if tw_unit == "MONTH" else "DAYS"
+            if tw_unit == "MONTH":
+                suffix = "MONTHS"
+            elif tw_unit == "WEEK":
+                suffix = "WEEKS"
+            else:
+                suffix = "DAYS"
             return f"LAST{tw_val}{suffix}_{col}"
         elif tw_type == "MTD":
             return f"MTD_{col}"

@@ -177,6 +177,15 @@ Rules:
    CRITICAL: "combined X and Y over last N days" is Track 1 (single time window, additive formula).
    Track 4 is ONLY for comparing a metric across TWO DIFFERENT time periods, or computing a
    ratio/percentage between two metrics. Never classify additive multi-column combinations as Track 4.
+7b. CRITICAL for subscription checks: "subscribed / not subscribed / subscription status" conditions
+   are ALWAYS Track 2, even when a time window ("in the last N days", "within the last N days",
+   "last N days") is present. The time window is a filter constraint on the subscription check —
+   it does NOT make it a Track 3 snapshot. Track 3 is for geo-location, latest attribute values,
+   and ID-based point-in-time lookups — never for subscription status checks.
+   Examples:
+   - "not subscribed to product in last 40 days" → Track 2
+   - "subscribed to product within last 30 days" → Track 2
+   - "never subscribed in last 90 days" → Track 2
 8. "count of X is zero", "count of X grouped by", or "count per subscriber/device/product" with NO time range → Track 2 (existence/absence checks expressed through counts, not time-series aggregations).
 9. "X not triggered/sent per subscriber", "X per device", or "no record per entity" → Track 2 (per-entity presence checks are flags, not time-series).
 10. If the condition mentions matching or joining on a runtime variable name (OM_MSISDN, OM_CHECK_MSISDN, HBB_imeiNumber, RE_REFILL_ID, LT_DEVICE_ID) → Track 6, regardless of whether it also has a date range or count check.
@@ -186,6 +195,8 @@ Examples:
 - "customers whose visit count to region X in the last 30 days >= 10" → Track 1. The count itself is the metric being measured.
 - "total revenue in the last 30 days >= 500" → Track 1. SUM over a time window.
 - "customer is currently subscribed to product X" → Track 2. Static state check.
+- "customer is not subscribed to product id 500 in the last 40 days" → Track 2. Subscription check with time window is still Track 2, not Track 3.
+- "subscribed to product within last 30 days" → Track 2. Time window scopes the subscription check.
 - "revenue drop of more than 20% compared to last month" → Track 4. Comparison across two periods.
 - "customers who received a bonus for action key X in the last N days" → Track 5. N is a runtime variable.
 
@@ -205,7 +216,7 @@ Fields to extract:
 - kpi: the core metric being measured, in plain English (e.g. "total revenue", "recharge amount", "data volume", "og call revenue"). Extract only the metric name — aggregation intent like "average" or "sum" goes into the aggregation field, not here.
 - aggregation: AVG | SUM | COUNT | COUNT_ALL | MAX | MIN
   Infer from context: "total"→SUM, "average"/"mean"→AVG, "number of"→COUNT, "count all"→COUNT_ALL
-- time_window.type: ROLLING_WEEK | FIXED_MONTH | LAST_N | MTD | LMTD
+- time_window.type: ROLLING_WEEK | FIXED_WEEK | FIXED_MONTH | LAST_N | MTD | LMTD
 - time_window.value: the numeric value from the input (e.g. 30, 3, 90). null for MTD/LMTD.
 - time_window.unit: the time unit mentioned in the input — DAY, WEEK, or MONTH. null for MTD/LMTD.
   "last 30 days" → unit=DAY. "last 3 months" → unit=MONTH. "rolling week 5" → unit=WEEK.
@@ -217,6 +228,11 @@ Rules:
 1. Never guess table or column names — leave those to downstream.
 2. Default SUM for revenue/amount, COUNT for event/occurrence fields.
 3. "Two months ago" / "month 2" / "M2" → FIXED_MONTH value=2.
+3A. "Last week" / "previous week" / "W1" / "one week ago" → FIXED_WEEK value=1 unit=WEEK.
+    "Two weeks ago" / "W2" → FIXED_WEEK value=2 unit=WEEK.
+    FIXED_WEEK is for a single completed calendar week.
+    Do NOT confuse with ROLLING_WEEK (which uses CurrentTime-NDAYS day offsets).
+    "Average weekly X" or "weekly X" with no explicit count → LAST_N value=4 unit=WEEK (default 4 completed weeks).
 4. "Rolling week 5" → ROLLING_WEEK value=5.
 5. "Last 30 days" / "past 30 days" → LAST_N value=30 unit=DAY.
 6. "Last 3 months" / "over the last 3 months" / "past 3 months" → LAST_N value=3 unit=MONTH.
@@ -226,6 +242,10 @@ Rules:
    "average recharge amount over last 3 months" → kpi: "recharge amount", aggregation: AVG, time_window: {type: LAST_N, value: 3, unit: MONTH}.
    "total data revenue in the last 15 days" → kpi: "data revenue", aggregation: SUM, time_window: {type: LAST_N, value: 15, unit: DAY}.
    "total revenue last month" → kpi: "total revenue", aggregation: SUM, time_window: {type: FIXED_MONTH, value: 1}.
+   "total revenue last week" → kpi: "total revenue", aggregation: SUM, time_window: {type: FIXED_WEEK, value: 1, unit: WEEK}.
+   "outgoing voice revenue two weeks ago" → kpi: "outgoing voice revenue", aggregation: SUM, time_window: {type: FIXED_WEEK, value: 2, unit: WEEK}.
+   "average weekly outgoing voice revenue" → kpi: "outgoing voice revenue", aggregation: AVG, time_window: {type: LAST_N, value: 4, unit: WEEK}.
+   "average weekly data usage over last 4 weeks" → kpi: "data usage", aggregation: AVG, time_window: {type: LAST_N, value: 4, unit: WEEK}.
 10. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Use COUNT_ALL as the aggregation when a list filter is present. If no such multi-value filter is mentioned, leave both fields as null.
    Examples:
    - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"]

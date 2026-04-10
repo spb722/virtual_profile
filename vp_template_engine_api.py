@@ -55,7 +55,7 @@ COLUMN_META = CONFIG.get("column_metadata", {})
 # =============================================================================
 
 class TimeWindow(BaseModel):
-    type: Literal["ROLLING_WEEK", "FIXED_MONTH", "LAST_N", "MTD", "LMTD"]
+    type: Literal["ROLLING_WEEK", "FIXED_WEEK", "FIXED_MONTH", "LAST_N", "MTD", "LMTD"]
     value: Optional[int] = None
     unit: Optional[Literal["DAY", "WEEK", "MONTH"]] = None
 
@@ -382,6 +382,23 @@ def resolve_track1(p: Track1Input) -> str:
                        .replace("{agg}", p.aggregation) \
                        .replace("{kpi_col}", p.kpi_col)
 
+    # ── Fixed Week ────────────────────────────────────────────────────────────
+    if tw.type == "FIXED_WEEK":
+        fw = t1["fixed_week"]
+        n = str(tw.value)
+        if p.formula and p.vp_name:
+            tmpl = fw["template_virtual"]
+            return tmpl.replace("{date_col}", date_col) \
+                       .replace("{N}", n) \
+                       .replace("{agg}", p.aggregation) \
+                       .replace("{vp_name}", p.vp_name) \
+                       .replace("{formula}", p.formula)
+        tmpl = fw["template"]
+        return tmpl.replace("{date_col}", date_col) \
+                   .replace("{N}", n) \
+                   .replace("{agg}", p.aggregation) \
+                   .replace("{kpi_col}", p.kpi_col)
+
     # ── Fixed Month ───────────────────────────────────────────────────────────
     if tw.type == "FIXED_MONTH":
         fm = t1["fixed_month"]
@@ -421,6 +438,20 @@ def resolve_track1(p: Track1Input) -> str:
                            .replace("{kpi_col}", p.kpi_col)
             else:
                 tmpl = ln["template_months_sum"]
+                return tmpl.replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{agg}", p.aggregation) \
+                           .replace("{kpi_col}", p.kpi_col)
+
+        if tw.unit == "WEEK":
+            if p.aggregation == "AVG" and p.vp_name:
+                tmpl = ln["template_weeks_avg"]
+                return tmpl.replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{vp_name}", p.vp_name) \
+                           .replace("{kpi_col}", p.kpi_col)
+            else:
+                tmpl = ln["template_weeks_sum"]
                 return tmpl.replace("{date_col}", date_col) \
                            .replace("{N}", n) \
                            .replace("{agg}", p.aggregation) \
