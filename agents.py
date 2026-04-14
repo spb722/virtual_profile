@@ -196,7 +196,7 @@ Examples:
 - "total revenue in the last 30 days >= 500" → Track 1. SUM over a time window.
 - "customer is currently subscribed to product X" → Track 2. Static state check.
 - "customer is not subscribed to product id 500 in the last 40 days" → Track 2. Subscription check with time window is still Track 2, not Track 3.
-- "subscribed to product within last 30 days" → Track 2. Time window scopes the subscription check.
+- "subscribed to product in last X days" → Track 5. X is a placeholder — overrides rule 7b.
 - "revenue drop of more than 20% compared to last month" → Track 4. Comparison across two periods.
 - "customers who received a bonus for action key X in the last N days" → Track 5. N is a runtime variable.
 

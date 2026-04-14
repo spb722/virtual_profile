@@ -700,6 +700,9 @@ def resolve_track3(p: Track3Input) -> str:
                 .replace("{id_col}", p.id_col) \
                 .replace("{count_col}", p.count_col)
     if sub == "geo_current":
+        if p.region_col:
+            return t3["geo_location"]["template_current_region"] \
+                    .replace("{region_col}", p.region_col)
         return t3["geo_location"]["template_current"] \
                 .replace("{lon_col}", p.lon_col) \
                 .replace("{lat_col}", p.lat_col) \

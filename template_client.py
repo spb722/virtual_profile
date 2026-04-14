@@ -369,7 +369,7 @@ def _map_state_to_subtype(expected_state: str) -> str:
         "NOT_SUBSCRIBED": "not_subscribed",
         "TRUE":           "count_flag_present",
         "FALSE":          "count_flag_absent",
-        "ASSIGNED":       "segment_type",
+        "ASSIGNED":       "attr_check",
     }
     return mapping.get(expected_state.upper(), "attr_check")
 

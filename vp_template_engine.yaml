@@ -375,10 +375,13 @@ track_3:
   # ---------------------------------------------------------------------------
   geo_location:
     description: "Checks subscriber's geographic location (current or within N days)"
-    # Current location: lat/long not null then name check
+    # Current location: lat/long not null then name check (for lat/lon tables)
     template_current: >
       {lon_col} <> NULL AND {lat_col} <> NULL
       AND {geo_name_col} ${operator} ${value}
+    # Current location: plain region/text column (e.g. Profile_Cdr_Region)
+    template_current_region: >
+      {region_col} <> NULL AND {region_col} ${operator} ${value}
     # Location within last N days (from DPI geo data)
     template_last_n_days: >
       {date_col} >= CurrentTime-{N}DAYS
