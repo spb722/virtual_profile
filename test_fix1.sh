@@ -1,263 +1,188 @@
 #!/bin/bash
 # =============================================================================
-# TRACK 3 — GEO + SNAPSHOT END-TO-END TESTS (Resolver API — port 8001)
+# SESSION FIX TESTS — End-to-end tests for all changes made this session
+# (Resolver API — port 8001)
 # =============================================================================
-# These test the FULL pipeline: NL → classifier → agent → KPI mapper → template
-# Validates: correct sub_type routing, N value, and final parent_condition output
-#
 # WHAT TO CHECK FOR EACH TEST:
-#   - Track classification  : should say Track 3 (SNAPSHOT)
-#   - sub_type              : should match the group label in each test
-#   - N value               : should match the number in the input sentence
-#   - parent_condition      : should match the expected template shown in each test
+#   - Track classification  : must match the expected track
+#   - parent_condition      : must match the expected pattern shown in each test
 # =============================================================================
 
 BASE="http://localhost:8001/resolve"
 
 # =============================================================================
-# GROUP 1 — geo_last_n_days
+# GROUP 1 — geo_current with region text column (Profile_Cdr_Region)
+# Fix: template_current_region used when region_col present (no lat/lon 500)
 # Expected parent_condition:
-#   dpi_geo_location_event_date >= CurrentTime-{N}DAYS
-#   AND dpi_geo_location_region ${operator} ${value}
-#   AND COUNT_ALL(GEO_LOCATION_MSISDN) >= 1
+#   Profile_Cdr_Region <> NULL AND Profile_Cdr_Region ${operator} ${value}
 # =============================================================================
 
 echo "======================================================================"
-echo "GEO TEST 1a: geo_last_n_days — 30 days"
-echo "Expected sub_type: geo_last_n_days | N: 30"
+echo "TEST 1a: geo_current — current geographic location is oman"
+echo "Expected: Track 3 | Profile_Cdr_Region <> NULL AND Profile_Cdr_Region \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who have been detected in region northoman at least once in the last 30 days"
+  "condition": "Customer'\''s current geographic location is oman"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "GEO TEST 1b: geo_last_n_days — 7 days"
-echo "Expected sub_type: geo_last_n_days | N: 7"
+echo "TEST 1b: geo_current — current region check"
+echo "Expected: Track 3 | Profile_Cdr_Region <> NULL AND Profile_Cdr_Region \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who have been detected in region northoman at least once in the last 7 days"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "GEO TEST 1c: geo_last_n_days — 90 days"
-echo "Expected sub_type: geo_last_n_days | N: 90"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who have been detected in region northoman at least once in the last 90 days"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "GEO TEST 1d: geo_last_n_days — yesterday (N should resolve to 1)"
-echo "Expected sub_type: geo_last_n_days | N: 1"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who were found in region northoman yesterday"
+  "condition": "Customer current region is northoman"
 }' | python3 -m json.tool
 echo ""
 
 # =============================================================================
-# GROUP 2 — geo_last_n_months
+# GROUP 2 — Track 2 attr_check: direct profile attribute comparison
+# Fix: classifier rule 2 updated — plain attribute threshold → Track 2 not Track 3
 # Expected parent_condition:
-#   dpi_geo_location_event_date >= CurrentMonth-{N}MONTHS
-#   AND dpi_geo_location_region ${operator} ${value}
-#   AND COUNT_ALL(GEO_LOCATION_MSISDN) >= 1
+#   <col> <> NULL AND <col> ${operator} ${value}
 # =============================================================================
 
 echo "======================================================================"
-echo "GEO TEST 2a: geo_last_n_months — 2 months"
-echo "Expected sub_type: geo_last_n_months | N: 2"
+echo "TEST 2a: attr_check — network age numeric threshold"
+echo "Expected: Track 2 | AON <> NULL AND AON \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who have been detected in region northoman at least once in the last 2 months"
+  "condition": "network age > 12 months"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "GEO TEST 2b: geo_last_n_months — 6 months"
-echo "Expected sub_type: geo_last_n_months | N: 6"
+echo "TEST 2b: attr_check — account balance numeric threshold"
+echo "Expected: Track 2 | <col> <> NULL AND <col> \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who were present in region northoman at least once in the last 6 months"
+  "condition": "account balance >= 500"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "TEST 2c: attr_check — categorical tariff plan check"
+echo "Expected: Track 2 | <col> <> NULL AND <col> \${operator} \${value}"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "tariff plan is prepaid"
 }' | python3 -m json.tool
 echo ""
 
 # =============================================================================
-# GROUP 3 — geo_current
+# GROUP 3 — Classifier: subscription + placeholder window → Track 5
+# Fix: example added to classifier prompt — X/N overrides rule 7b
+# =============================================================================
+
+echo "======================================================================"
+echo "TEST 3a: subscribed + placeholder X days → Track 5 (NOT Track 2)"
+echo "Expected: Track 5 (PARAMETERIZED)"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "customer is subscribed to 1234 in the last X days"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "TEST 3b: not subscribed + placeholder N days → Track 5 (NOT Track 2)"
+echo "Expected: Track 5 (PARAMETERIZED)"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "customer is not subscribed to product 500 in the last N days"
+}' | python3 -m json.tool
+echo ""
+
+echo "======================================================================"
+echo "TEST 3c: subscribed + fixed 30 days → Track 2 (fixed number, not placeholder)"
+echo "Expected: Track 2 (STATIC_FLAG)"
+echo "======================================================================"
+curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
+  "condition": "customer is subscribed to product 500 in the last 30 days"
+}' | python3 -m json.tool
+echo ""
+
+# =============================================================================
+# GROUP 4 — Track 1 IN LIST + COUNT_ALL (filtered_count.template_range)
+# Fix: filter_values wired through payload → template_range now reachable
 # Expected parent_condition:
-#   {lon_col} <> NULL AND {lat_col} <> NULL AND {geo_name_col} ${operator} ${value}
+#   {date_col} >= CurrentTime-{N}DAYS
+#   AND {filter_col} IN LIST ({filter_values})
+#   AND COUNT_ALL({kpi_col}) ${operator} ${value}
 # =============================================================================
 
 echo "======================================================================"
-echo "GEO TEST 3a: geo_current — current location check"
-echo "Expected sub_type: geo_current | N: null"
+echo "TEST 4a: product ID list + date window + COUNT_ALL"
+echo "Expected: Track 1 | SUBSCRIPTIONS_EVENT_DATE >= CurrentTime-30DAYS AND SUBSCRIPTIONS_Product_Id IN LIST (123;125) AND COUNT_ALL(...) \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers whose current location is region northoman"
+  "condition": "Select customers who purchased product 123 or product 125 in the last 30 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "GEO TEST 3b: geo_current — currently present"
-echo "Expected sub_type: geo_current | N: null"
+echo "TEST 4b: device type list + date window + COUNT_ALL"
+echo "Expected: Track 1 | <date_col> >= CurrentTime-90DAYS AND <type_col> IN LIST (keypad;smartphone;iphone) AND COUNT_ALL(...) \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers currently present in region northoman"
+  "condition": "Find the number of customers using keypad, smartphone, or iphone devices in the last 90 days"
 }' | python3 -m json.tool
 echo ""
 
 # =============================================================================
-# GROUP 4 — snapshot_max_check
+# GROUP 5 — Track 1 IN LIST + SUM/AVG (filtered_count.template_range_agg)
+# Fix: new template_range_agg added — IN LIST + date + variable aggregation
 # Expected parent_condition:
-#   {id_col} <> NULL AND MAX({ref_col}) > 0
+#   {filter_col} IN LIST ({filter_values})
+#   AND {date_col} >= CurrentTime-{N}DAYS
+#   AND {agg}({kpi_col}) ${operator} ${value}
 # =============================================================================
 
 echo "======================================================================"
-echo "SNAPSHOT TEST 4a: snapshot_max_check — prepaid voice revenue"
-echo "Expected sub_type: snapshot_max_check | N: null"
+echo "TEST 5a: subscription state list + date window + SUM metric"
+echo "Expected: Track 1 | SubscriptionState IN LIST (active;inactive) AND <date_col> >= CurrentTime-30DAYS AND SUM(SMS_Offnet_Revenue) \${operator} \${value}"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who have prepaid voice revenue on event date >= 500 and MAX prepaid voice revenue is greater than zero"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "SNAPSHOT TEST 4b: snapshot_max_check — HBB ID"
-echo "Expected sub_type: snapshot_max_check | N: null"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers with HBB add-on component >= 500 who have a valid HBB ID and MAX HBB ID is not null"
+  "condition": "total sms offnet revenue of active or inactive subscribers over the past 30 days"
 }' | python3 -m json.tool
 echo ""
 
 # =============================================================================
-# GROUP 5 — snapshot_by_date_boundary
+# GROUP 6 — Track 2 campaign_present_fixed_days
+# Fix: new sub_type + template for promo SENT (presence) in fixed N days
 # Expected parent_condition:
-#   {date_col} = CurrentTime-{N}DAYS
-#   AND {id_col} ${operator} ${value}
-#   AND COUNT_ALL({count_col}) = 0
+#   L_PROMO_SENT_DATE >= CurrentTime-{N}DAYS
+#   AND LC_ACTION_TYPE IN LIST (Promotion;PROMOTION;promotion)
+#   AND L_ACTION_KEY ${operator} ${value}
+#   AND COUNT_ALL(L_AGG_MSISDN) > 0
 # =============================================================================
 
 echo "======================================================================"
-echo "SNAPSHOT TEST 5a: snapshot_by_date_boundary — yesterday"
-echo "Expected sub_type: snapshot_by_date_boundary | N: 1"
+echo "TEST 6a: promo sent in last 4 days (fixed window)"
+echo "Expected: Track 2 | L_PROMO_SENT_DATE >= CurrentTime-4DAYS AND LC_ACTION_TYPE IN LIST (Promotion;PROMOTION;promotion) AND L_ACTION_KEY \${operator} \${value} AND COUNT_ALL(L_AGG_MSISDN) > 0"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who activated HBB add-on component >= 500 yesterday and have no active fixed line"
+  "condition": "count of customers who have been sent a promotion in the last 4 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "SNAPSHOT TEST 5b: snapshot_by_date_boundary — one day ago"
-echo "Expected sub_type: snapshot_by_date_boundary | N: 1"
+echo "TEST 6b: promo sent in last 7 days (fixed window)"
+echo "Expected: Track 2 | L_PROMO_SENT_DATE >= CurrentTime-7DAYS AND LC_ACTION_TYPE IN LIST (Promotion;PROMOTION;promotion) AND L_ACTION_KEY \${operator} \${value} AND COUNT_ALL(L_AGG_MSISDN) > 0"
 echo "======================================================================"
 curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who activated HBB add-on component >= 500 one day ago and have no active fixed line"
-}' | python3 -m json.tool
-echo ""
-
-# =============================================================================
-# GROUP 6 — snapshot_by_id with separate join key
-# Expected parent_condition:
-#   HBBID = ${HBBID} AND HBBAddon_Inact_Date ${operator} ${value}
-# =============================================================================
-
-echo "======================================================================"
-echo "SNAPSHOT TEST 6a: snapshot_by_id — separate join key (HBBID)"
-echo "Expected sub_type: snapshot_by_id | id_col: HBBID"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers with HBB ID matching the specified ID and HBB add-on deactivation date >= 500"
+  "condition": "customers who received a promotion in the last 7 days"
 }' | python3 -m json.tool
 echo ""
 
 echo "======================================================================"
-echo "SNAPSHOT TEST 6b: snapshot_by_id — separate join key (HBB_ID variant)"
-echo "Expected sub_type: snapshot_by_id | id_col: HBB_ID"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers with the specified HBB ID and HBB add-on deactivation date >= 500"
-}' | python3 -m json.tool
-echo ""
-
-# =============================================================================
-# GROUP 7 — snapshot_by_id normal (no separate join key)
-# Expected parent_condition:
-#   {value_col} ${operator} ${value}
-# =============================================================================
-
-echo "======================================================================"
-echo "SNAPSHOT TEST 7a: snapshot_by_id — plain attribute check"
-echo "Expected sub_type: snapshot_by_id | id_col: null"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers whose prepaid voice revenue on event date >= 500"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "SNAPSHOT TEST 7b: snapshot_by_id — plain date attribute check"
-echo "Expected sub_type: snapshot_by_id | id_col: null"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers whose HBB add-on deactivation date >= 500"
-}' | python3 -m json.tool
-echo ""
-
-# =============================================================================
-# GROUP 8 — Classifier boundary cases
-# These confirm the Track 1 vs Track 3 disambiguation is working correctly
-# =============================================================================
-
-echo "======================================================================"
-echo "BOUNDARY TEST 8a: should be Track 3 — presence check with time window"
-echo "Expected: Track 3 (SNAPSHOT)"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who appeared in region northoman in the last 15 days"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "BOUNDARY TEST 8b: should be Track 3 — ever found"
-echo "Expected: Track 3 (SNAPSHOT)"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers who were ever found in region northoman in the last 60 days"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "BOUNDARY TEST 8c: should be Track 1 — count IS the metric"
-echo "Expected: Track 1 (TIME_SERIES) — must NOT go to Track 3"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers whose visit count to region northoman in the last 30 days is greater than 10"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "BOUNDARY TEST 8d: should be Track 1 — total detections as metric"
-echo "Expected: Track 1 (TIME_SERIES) — must NOT go to Track 3"
-echo "======================================================================"
-curl -s -X POST $BASE -H "Content-Type: application/json" -d '{
-  "condition": "Customers whose total number of detections in region northoman in the last 30 days >= 5"
-}' | python3 -m json.tool
-echo ""
-
-echo "======================================================================"
-echo "ALL TRACK 3 TESTS COMPLETE"
+echo "ALL SESSION FIX TESTS COMPLETE"
 echo "======================================================================"
 echo ""
 echo "QUICK PASS/FAIL CHECKLIST:"
-echo "  Group 1 (1a-1d) : track=3, sub_type=geo_last_n_days,         N matches input"
-echo "  Group 2 (2a-2b) : track=3, sub_type=geo_last_n_months,       N matches input"
-echo "  Group 3 (3a-3b) : track=3, sub_type=geo_current,             N=null"
-echo "  Group 4 (4a-4b) : track=3, sub_type=snapshot_max_check,      N=null"
-echo "  Group 5 (5a-5b) : track=3, sub_type=snapshot_by_date_boundary, N=1"
-echo "  Group 6 (6a-6b) : track=3, sub_type=snapshot_by_id,          id_col present"
-echo "  Group 7 (7a-7b) : track=3, sub_type=snapshot_by_id,          id_col=null"
-echo "  Group 8 (8a-8b) : track=3 SNAPSHOT  — presence check cases"
-echo "  Group 8 (8c-8d) : track=1 TIME_SERIES — must NOT be Track 3"
+echo "  Group 1 (1a-1b) : track=3, geo_current, region_col path — no 500 error"
+echo "  Group 2 (2a-2c) : track=2, attr_check — direct attribute comparison, not Track 3"
+echo "  Group 3 (3a-3b) : track=5, PARAMETERIZED — X/N placeholder overrides rule 7b"
+echo "  Group 3 (3c)    : track=2, STATIC_FLAG  — fixed number stays Track 2"
+echo "  Group 4 (4a-4b) : track=1, IN LIST + COUNT_ALL → template_range"
+echo "  Group 5 (5a)    : track=1, IN LIST + SUM/AVG  → template_range_agg"
+echo "  Group 6 (6a-6b) : track=2, campaign_present_fixed_days — promo sent fixed N days"

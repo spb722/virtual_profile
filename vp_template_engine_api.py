@@ -71,6 +71,7 @@ class Track1Input(BaseModel):
     vp_name: Optional[str] = None
     filter_col: Optional[str] = None
     filter_val: Optional[str] = None
+    filter_values: Optional[str] = None   # semicolon-joined list for IN LIST
     # Multi-KPI virtual formula: list of column names to guard (col > 0)
     null_guard_cols: Optional[List[str]] = None
 
@@ -99,6 +100,7 @@ class Track2Input(BaseModel):
         "count_flag_absent_today",       # date=CurrentTime + null guard + count=0
         "count_flag_present_today",      # date=CurrentTime + null guard + count>=1
         "campaign_absent_fixed_days",    # date>=CurrentTime-NDAYS + key check + count=0
+        "campaign_present_fixed_days",   # date>=CurrentTime-NDAYS + action_type IN LIST + count>0
         "date_value_count",              # date col as ${op} ${val} + COUNT > 0
         "multi_null_date_value_count"    # multi null guards + date as ${op} ${val} + COUNT > 0
     ]
@@ -118,6 +120,7 @@ class Track2Input(BaseModel):
     is_composite: bool = False
     # ── FIX 1: groupby + extra fields for new sub_types ───────────────────
     groupby_entity: Optional[str] = None
+    action_type_col: Optional[str] = None     # for campaign_present_fixed_days IN LIST check
     null_guard_col: Optional[str] = None      # single extra null guard col
     null_col_1: Optional[str] = None          # first null guard col (multi)
     null_col_2: Optional[str] = None          # second null guard col (multi)
@@ -474,6 +477,24 @@ def resolve_track1(p: Track1Input) -> str:
             return tmpl.replace("{kpi_col}", p.kpi_col) \
                        .replace("{agg}", p.aggregation)
 
+        if p.filter_col and p.filter_values:
+            fc = TEMPLATES["track_1"]["filtered_count"]
+            if p.aggregation == "COUNT_ALL":
+                tmpl = fc["template_range"]
+                return tmpl.replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{filter_col}", p.filter_col) \
+                           .replace("{filter_values}", p.filter_values) \
+                           .replace("{kpi_col}", p.kpi_col)
+            else:
+                tmpl = fc["template_range_agg"]
+                return tmpl.replace("{filter_col}", p.filter_col) \
+                           .replace("{filter_values}", p.filter_values) \
+                           .replace("{date_col}", date_col) \
+                           .replace("{N}", n) \
+                           .replace("{agg}", p.aggregation) \
+                           .replace("{kpi_col}", p.kpi_col)
+
         if p.filter_col and p.filter_val:
             tmpl = ln["template_days_with_filter"]
             return tmpl.replace("{date_col}", date_col) \
@@ -595,6 +616,17 @@ def resolve_track2(p: Track2Input) -> str:
             parts.append(f"{p.null_guard_col} <> NULL")
         parts.append(f"COUNT_ALL({p.count_col}) {count_op} {count_val}")
         return " AND ".join(parts)
+
+    # Fixed-day promo presence: date window + action_type IN LIST + flag check + count > 0
+    if sub == "campaign_present_fixed_days":
+        date_col = get_date_col(p.table_name)
+        n_days = p.N if p.N is not None else 0
+        return (
+            f"{date_col} >= CurrentTime-{n_days}DAYS "
+            f"AND {p.action_type_col} IN LIST (Promotion;PROMOTION;promotion) "
+            f"AND {p.flag_col} ${{operator}} ${{value}} "
+            f"AND COUNT_ALL({p.count_col}) > 0"
+        )
 
     # Fixed-day promo absence: date window + action key check + count zero
     if sub == "campaign_absent_fixed_days":

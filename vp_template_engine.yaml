@@ -221,6 +221,11 @@ track_1:
       {date_col} = CurrentTime-{N}DAYS
       AND {filter_col} IN LIST ({filter_values})
       AND COUNT_ALL({kpi_col}) ${operator} ${value}
+    # IN LIST filter + date range + variable aggregation (SUM/AVG/etc.)
+    template_range_agg: >
+      {filter_col} IN LIST ({filter_values})
+      AND {date_col} >= CurrentTime-{N}DAYS
+      AND {agg}({kpi_col}) ${operator} ${value}
 
 
 # =============================================================================
@@ -319,6 +324,12 @@ track_2:
     template_count_flag_present_within_n_days: >
       {date_col} >= CurrentTime-{N}DAYS
       AND {flag_col} <> NULL AND COUNT_ALL({count_col}) ${operator} ${value}
+    # Campaign/promo present within last N days (fixed window, action_type IN LIST)
+    template_campaign_present_fixed_days: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {action_type_col} IN LIST (Promotion;PROMOTION;promotion)
+      AND {flag_col} ${operator} ${value}
+      AND COUNT_ALL({count_col}) > 0
     # Count-based flag present today
     template_count_flag_present_today: >
       {date_col} = CurrentTime
@@ -655,6 +666,10 @@ column_metadata:
         sent_date_col: L_PROMO_SENT_DATE
         action_key_col: L_ACTION_KEY
         msisdn_col: L_AGG_MSISDN
+      campaign_present_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: L_ACTION_KEY
+        count_col: L_AGG_MSISDN
 
   LIFECYCLE_BONUS:
     date_col: L_BONUS_SENT_DATE

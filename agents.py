@@ -165,7 +165,7 @@ Your job is to read a natural language description of a KPI or condition and cla
 
 Rules:
 1. Accumulation or aggregation over a time period → Track 1.
-2. Current/latest single value with NO accumulation → Track 3.
+2. Current/latest value requiring retrieval (geo lookup, MAX, join on external ID) → Track 3. Direct profile attribute comparison (numeric threshold, categorical, status) → Track 2.
 3. Yes/no, exists/not-exists, subscribed/not-subscribed → Track 2.
 4. Ratio, percentage drop/increase, comparison between two metrics or two periods → Track 4.
 5. Variable placeholders like "N days", "specified", "given", "any" → Track 5.
@@ -194,9 +194,11 @@ Examples:
 - "customers detected in region Northoman at least once in the last 30 days" → Track 3. Subject is location, COUNT confirms presence only.
 - "customers whose visit count to region X in the last 30 days >= 10" → Track 1. The count itself is the metric being measured.
 - "total revenue in the last 30 days >= 500" → Track 1. SUM over a time window.
-- "customer is currently subscribed to product X" → Track 2. Static state check.
+- "customer network age > 12 months" → Track 2. Direct attribute comparison — no retrieval needed.
 - "customer is not subscribed to product id 500 in the last 40 days" → Track 2. Subscription check with time window is still Track 2, not Track 3.
-- "subscribed to product in last X days" → Track 5. X is a placeholder — overrides rule 7b.
+- "subscribed to product in last X days" or "not subscribed in last N days" → Track 5. X/N are placeholders — override rule 7b.
+- "purchased product 123 or 125 in the last 30 days" → Track 1. Count of purchase events filtered by a specific list of product IDs — not a subscription check.
+- "count of customers sent a promotion in the last 4 days" → Track 2. Count-based campaign presence check, not a time-series aggregation.
 - "revenue drop of more than 20% compared to last month" → Track 4. Comparison across two periods.
 - "customers who received a bonus for action key X in the last N days" → Track 5. N is a runtime variable.
 
@@ -246,10 +248,11 @@ Rules:
    "outgoing voice revenue two weeks ago" → kpi: "outgoing voice revenue", aggregation: SUM, time_window: {type: FIXED_WEEK, value: 2, unit: WEEK}.
    "average weekly outgoing voice revenue" → kpi: "outgoing voice revenue", aggregation: AVG, time_window: {type: LAST_N, value: 4, unit: WEEK}.
    "average weekly data usage over last 4 weeks" → kpi: "data usage", aggregation: AVG, time_window: {type: LAST_N, value: 4, unit: WEEK}.
-10. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Use COUNT_ALL as the aggregation when a list filter is present. If no such multi-value filter is mentioned, leave both fields as null.
+10. If the condition mentions filtering by a specific list of values on any column — such as a list of product IDs, refill IDs, action keys, service types, bundle codes, or any other set of named values — extract the column being filtered into filter_col and the list of values into filter_values. Keep the natural aggregation: COUNT_ALL for event/occurrence counts, SUM for revenue/amount, AVG for averages. If no such multi-value filter is mentioned, leave both fields as null.
    Examples:
-   - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"]
-   - "bonus sent for action keys HBB_key, PROMO_key" → filter_col: "action key", filter_values: ["HBB_key", "PROMO_key"]
+   - "count of purchases for products MD03, M138, M139" → filter_col: "product ID", filter_values: ["MD03", "M138", "M139"], aggregation: COUNT_ALL
+   - "total SMS revenue for active or inactive subscribers" → filter_col: "subscription state", filter_values: ["active", "inactive"], aggregation: SUM
+   - "bonus sent for action keys HBB_key, PROMO_key" → filter_col: "action key", filter_values: ["HBB_key", "PROMO_key"], aggregation: COUNT_ALL
    - "total revenue last 30 days" → filter_col: null, filter_values: null
 11. When the condition combines two or more KPIs ADDITIVELY from the same time window
    (trigger phrases: "combined X and Y", "sum of X and Y", "X and Y together",
@@ -284,7 +287,13 @@ You will receive a natural language description already classified as Track 2: S
 
 Fields to extract:
 - kpi: the attribute or flag being checked (e.g. "prepaid migration best plan", "product", "audience segment")
-- expected_state: EXISTS | NOT_EXISTS | TRUE | FALSE | SUBSCRIBED | NOT_SUBSCRIBED | ASSIGNED
+- expected_state:
+    EXISTS         → record/flag is present (no value comparison)
+    NOT_EXISTS     → record/flag is absent (no value comparison)
+    TRUE / FALSE   → boolean flag check
+    SUBSCRIBED     → subscription active
+    NOT_SUBSCRIBED → subscription absent
+    ASSIGNED       → attribute compared against a threshold or category (>, <, >=, =, etc.)
 - aggregation: null (always)
 - time_window: null (always)
 - is_composite: false
@@ -303,6 +312,16 @@ Rules:
    Examples:
    "subscribed at most 1 time in the last 30 days" → expected_state: SUBSCRIBED, threshold: 1
    "subscribed at most 4 times in the last 30 days" → expected_state: SUBSCRIBED, threshold: 4
+
+8. If the condition compares an attribute against a numeric or categorical value
+   using an operator (>, <, >=, <=, =), set expected_state = ASSIGNED.
+   Examples:
+   - "network age > 12 months"    → kpi: "network age",    expected_state: ASSIGNED
+   - "account balance >= 500"     → kpi: "account balance", expected_state: ASSIGNED
+   - "tariff plan = prepaid"      → kpi: "tariff plan",     expected_state: ASSIGNED
+   Contrast — no value comparison means EXISTS/NOT_EXISTS:
+   - "NBO product ID is available" → expected_state: EXISTS
+   - "no active bundle"            → expected_state: NOT_EXISTS
 
 ## Groupby Detection
 

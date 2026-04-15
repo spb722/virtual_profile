@@ -130,6 +130,15 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
     }
     if vp_name:
         payload["vp_name"] = vp_name
+    if extracted.filter_col:
+        try:
+            filter_info = resolve_kpi(extracted.filter_col)
+            payload["filter_col"] = filter_info["kpi_col"]
+        except Exception:
+            logger.warning("Could not resolve filter_col '%s' via KPI mapper; using raw text", extracted.filter_col)
+            payload["filter_col"] = extracted.filter_col
+    if extracted.filter_values:
+        payload["filter_values"] = ";".join(extracted.filter_values)
     return payload
 
 
@@ -145,6 +154,8 @@ def build_track2_payload(extracted: Track2Output) -> dict:
     promo_payload = _build_track2_fixed_promo_absence_payload(extracted, kpi_info)
     if promo_payload:
         payload = promo_payload
+    elif _build_track2_promo_presence_payload(extracted, kpi_info):
+        payload = _build_track2_promo_presence_payload(extracted, kpi_info)
     else:
         base_sub_type = _map_state_to_subtype(extracted.expected_state)
 
@@ -402,6 +413,34 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
         "count_col":    "L_AGG_MSISDN",
         "N":            n_days,
         "is_composite": extracted.is_composite,
+    }
+
+
+def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
+    """
+    Route fixed-window promo PRESENCE checks (EXISTS + LIFECYCLE_PROMO + time_constraint)
+    to campaign_present_fixed_days template.
+    """
+    if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_PROMO":
+        return None
+    if str(extracted.expected_state or "").upper() != "EXISTS":
+        return None
+    time_constraint = extracted.time_constraint
+    if not time_constraint:
+        return None
+    if time_constraint.type == "LAST_N_DAYS" and time_constraint.value is not None:
+        n_days = time_constraint.value
+    else:
+        return None
+    cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_present_fixed_days", {})
+    return {
+        "table_name":      kpi_info["table_name"],
+        "sub_type":        "campaign_present_fixed_days",
+        "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+        "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
+        "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+        "N":               n_days,
+        "is_composite":    extracted.is_composite,
     }
 
 
