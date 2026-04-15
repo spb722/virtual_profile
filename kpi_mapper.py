@@ -21,7 +21,7 @@ VP_VERIFY_URL = os.environ.get(
     "VP_VERIFY_URL",
     "https://10.0.11.179:5678/webhook/VP_verify",
 )
-VP_VERIFY_TIMEOUT = float(os.environ.get("VP_VERIFY_TIMEOUT", "15"))
+VP_VERIFY_TIMEOUT = float(os.environ.get("VP_VERIFY_TIMEOUT", "180"))
 VP_VERIFY_SSL_VERIFY = (
     os.environ.get("VP_VERIFY_SSL_VERIFY", "false").strip().lower()
     in {"1", "true", "yes"}

@@ -306,6 +306,14 @@ Rules:
 4. "Next best offer exists" → expected_state = EXISTS.
 5. "Not subscribed to product" → expected_state = NOT_SUBSCRIBED.
 6. If the condition mentions a time constraint like 'today', 'last N days', 'last N months', or 'this month', extract it into the time_constraint field. If no time constraint is mentioned, leave it as null.
+   This applies to ALL condition types including promotion/bonus/campaign checks.
+   Examples:
+   - "promotion sent in the last 4 days" → time_constraint: {"type": "LAST_N_DAYS", "value": 4}
+   - "received a bonus within the last 7 days" → time_constraint: {"type": "LAST_N_DAYS", "value": 7}
+   - "customers who have been sent a promotion within the last 4 days" → time_constraint: {"type": "LAST_N_DAYS", "value": 4}
+   - "received a promotion in the last 4 days" → time_constraint: {"type": "LAST_N_DAYS", "value": 4}
+   - "sent a promotion today" → time_constraint: {"type": "TODAY", "value": null}
+   - "not received a promotion in the last 4 days" → time_constraint: {"type": "LAST_N_DAYS", "value": 4}
 7. If the condition says "at most N times", "fewer than N times", "maximum N times", "no more than N times", or "≤ N times":
    - Set expected_state = SUBSCRIBED
    - Extract the count limit into the threshold field

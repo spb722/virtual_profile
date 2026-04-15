@@ -418,10 +418,12 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
 
 def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
     """
-    Route fixed-window promo PRESENCE checks (EXISTS + LIFECYCLE_PROMO + time_constraint)
+    Route fixed-window promo PRESENCE checks (EXISTS + LIFECYCLE_PROMO/LIFECYCLE_CDR + time_constraint)
     to campaign_present_fixed_days template.
+    Accepts both LIFECYCLE_PROMO and LIFECYCLE_CDR — KPI mapper may return either.
+    Always forces table_name to LIFECYCLE_PROMO so template engine uses L_PROMO_SENT_DATE as date_col.
     """
-    if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_PROMO":
+    if str(kpi_info.get("table_name", "") or "").strip() not in ("LIFECYCLE_PROMO", "LIFECYCLE_CDR"):
         return None
     if str(extracted.expected_state or "").upper() != "EXISTS":
         return None
@@ -434,7 +436,7 @@ def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict
         return None
     cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_present_fixed_days", {})
     return {
-        "table_name":      kpi_info["table_name"],
+        "table_name":      "LIFECYCLE_PROMO",
         "sub_type":        "campaign_present_fixed_days",
         "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
         "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
