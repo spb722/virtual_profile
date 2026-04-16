@@ -94,6 +94,7 @@ class Track3Output(BaseModel):
                    "snapshot_by_id",
                    "snapshot_max_check",
                    "snapshot_by_date_boundary",
+                   "snapshot_null_zero_max",
                    "geo_last_n_days",
                    "geo_last_n_months",
                    "geo_current"
@@ -441,28 +442,33 @@ ROUTING RULES — read top to bottom, first match wins
 1. Contains "MAX(col)" or "MAX(col) <> NULL" or "MAX(col) > 0"
    → sub_type = "snapshot_max_check", N = null, time_unit = null
 
-2. Contains a date = CurrentTime-NDAYS pattern AND a COUNT check on another column
+2. Contains phrases like "zero or null", "null or zero", "was zero", "was null"
+   AND "most recent date" or "most recent" AND a time window (N days/months)
+   → sub_type = "snapshot_null_zero_max"
+   → N = the time value, time_unit = "DAYS" or "MONTHS"
+
+3. Contains a date = CurrentTime-NDAYS pattern AND a COUNT check on another column
    → sub_type = "snapshot_by_date_boundary"
    → N = that number, time_unit = "DAYS"
 
-3. Contains geo / region / location AND a time window in DAYS
+4. Contains geo / region / location AND a time window in DAYS
    → sub_type = "geo_last_n_days"
    → N = that number, time_unit = "DAYS"
 
-4. Contains geo / region / location AND a time window in MONTHS
+5. Contains geo / region / location AND a time window in MONTHS
    → sub_type = "geo_last_n_months"
    → N = that number, time_unit = "MONTHS"
 
-5. Contains geo / region / location AND no time window
+6. Contains geo / region / location AND no time window
    → sub_type = "geo_current"
    → N = null, time_unit = null
 
-6. Contains a runtime variable on one column ($VAR) AND a separate KPI column
+7. Contains a runtime variable on one column ($VAR) AND a separate KPI column
    → sub_type = "snapshot_by_id"
    → id_col = the column with the $VAR match
    → kpi = the other column being filtered
 
-7. All other cases
+8. All other cases
    → sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = null
 
 ────────────────────────────────────────────────────────────────

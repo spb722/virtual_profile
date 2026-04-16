@@ -264,6 +264,15 @@ def build_track3_payload(extracted: Track3Output) -> dict:
             "is_composite": extracted.is_composite,
         }
 
+    if sub_type == "snapshot_null_zero_max":
+        return {
+            "table_name":   kpi_info["table_name"],
+            "sub_type":     "snapshot_null_zero_max",
+            "N":            extracted.N,
+            "kpi_col":      kpi_info["kpi_col"],
+            "is_composite": extracted.is_composite,
+        }
+
     # default — snapshot_by_id
     return {
         "table_name":   kpi_info["table_name"],

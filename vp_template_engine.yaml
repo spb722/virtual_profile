@@ -376,6 +376,12 @@ track_3:
       {date_col} = CurrentTime-{N}DAYS
       AND {id_col} ${operator} ${value}
       AND COUNT_ALL({count_col}) = 0
+    # Null/zero check on most recent date within N days
+    # (e.g. data free revenue was zero/null on most recent date in past 90 days)
+    template_null_zero_max: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND ({kpi_col} = NULL OR {kpi_col} = 0)
+      AND Max({date_col}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 3.2 — Geo Location Snapshot
