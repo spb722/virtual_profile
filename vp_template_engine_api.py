@@ -135,6 +135,7 @@ class Track3Input(BaseModel):
         "snapshot_by_id",
         "snapshot_max_check",
         "snapshot_by_date_boundary",
+        "snapshot_null_zero_max",
         "geo_current",
         "geo_last_n_days",
         "geo_last_n_months"
@@ -143,6 +144,7 @@ class Track3Input(BaseModel):
     value_col: Optional[str] = None
     ref_col: Optional[str] = None
     count_col: Optional[str] = None
+    kpi_col: Optional[str] = None
     lon_col: Optional[str] = None
     lat_col: Optional[str] = None
     geo_name_col: Optional[str] = None
@@ -753,6 +755,12 @@ def resolve_track3(p: Track3Input) -> str:
                 .replace("{N}", str(p.N)) \
                 .replace("{region_col}", p.region_col) \
                 .replace("{msisdn_col}", p.msisdn_col)
+    if sub == "snapshot_null_zero_max":
+        date_col = get_date_col(p.table_name)
+        return t3["snapshot_id"]["template_null_zero_max"] \
+                .replace("{date_col}", date_col) \
+                .replace("{N}", str(p.N)) \
+                .replace("{kpi_col}", p.kpi_col)
 
     raise HTTPException(400, f"Unknown track 3 sub_type: {sub}")
 

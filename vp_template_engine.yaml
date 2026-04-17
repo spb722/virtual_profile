@@ -57,11 +57,11 @@ track_1:
     # When KPI is a computed virtual formula (e.g. col1+col2)
     template_w1_virtual: >
       {date_col} >= CurrentTime-7DAYS AND {date_col} < CurrentTime
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     template_w2_plus_virtual: >
       {date_col} >= CurrentTime-{week_start}DAYS
       AND {date_col} <= CurrentTime-{week_end}DAYS
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     week_offsets:
       W1:  { start: 0,  end: 7  }
       W2:  { start: 8,  end: 14 }
@@ -86,7 +86,7 @@ track_1:
       AND {agg}({kpi_col}) ${operator} ${value}
     template_virtual: >
       {date_col} = CurrentMonth-{N}MONTHS
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     # Optional: add dimension filter (e.g. for DPI protocol filtering)
     template_with_filter: >
       {date_col} = CurrentMonth-{N}MONTHS
@@ -108,7 +108,7 @@ track_1:
       {date_col} = CurrentWeek-{N}WEEKS AND {agg}({kpi_col}) ${operator} ${value}
     template_virtual: >
       {date_col} = CurrentWeek-{N}WEEKS
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 1.3 — Last N (Days or Months from current time)
@@ -136,11 +136,11 @@ track_1:
     # Last N days with AVG formula — virtual KPI (e.g. LAST98DAYS_TOTAL_REVENUE)
     template_days_avg: >
       {date_col} >= CurrentTime-{N}DAYS
-      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+      AND SUM(V{{vp_name}}=f{{kpi_col}/{N}}) ${operator} ${value}
     # Last N completed months with AVG formula (e.g. AVG_ARPU_LAST3MONTHS)
     template_months_avg: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
-      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+      AND SUM(V{{vp_name}}=f{{kpi_col}/{N}}) ${operator} ${value}
     # Last N completed months with SUM/non-AVG aggregation
     template_months_sum: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
@@ -148,7 +148,7 @@ track_1:
     # Last N completed weeks with AVG formula (e.g. LAST4WEEKS_OG_CALL_REVENUE)
     template_weeks_avg: >
       {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
-      AND SUM(V{{{vp_name}}}=f{{{kpi_col}/{N}}}) ${operator} ${value}
+      AND SUM(V{{vp_name}}=f{{kpi_col}/{N}}) ${operator} ${value}
     # Last N completed weeks with SUM/non-AVG aggregation
     template_weeks_sum: >
       {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
@@ -163,13 +163,13 @@ track_1:
     template_days_open_virtual_guarded: >
       {date_col} >= CurrentTime-{N}DAYS
       AND {guard_exprs}
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     # No date filter at all — bare SUM with null guard
     template_no_date: >
       {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # No date filter, multi-column virtual KPI
     template_no_date_virtual: >
-      {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 1.4 — MTD / LMTD
@@ -376,6 +376,12 @@ track_3:
       {date_col} = CurrentTime-{N}DAYS
       AND {id_col} ${operator} ${value}
       AND COUNT_ALL({count_col}) = 0
+    # Null/zero check on most recent date within N days
+    # (e.g. data free revenue was zero/null on most recent date in past 90 days)
+    template_null_zero_max: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND ({kpi_col} = NULL OR {kpi_col} = 0)
+      AND Max({date_col}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 3.2 — Geo Location Snapshot
@@ -494,7 +500,7 @@ track_5:
     # Virtual/computed KPI sum over last X days
     template_virtual_sum: >
       {date_col} >= CurrentTime-${X}DAYS
-      AND {agg}(V{{{vp_name}}}=f{{{formula}}}) ${operator} ${value}
+      AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     # Subscription check over last X days (count = 0 or > 0)
     template_subscription_x_days_present: >
       {date_col} >= CurrentTime-${X}DAYS
