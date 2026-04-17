@@ -103,6 +103,13 @@ class Track2Input(BaseModel):
         "campaign_present_fixed_days",   # date>=CurrentTime-NDAYS + action_type IN LIST + count>0
         "date_value_count",              # date col as ${op} ${val} + COUNT > 0
         "multi_null_date_value_count"    # multi null guards + date as ${op} ${val} + COUNT > 0
+
+        "count_flag_present_today",      # date=CurrentTime + null guard + count>=1
+        "campaign_absent_fixed_days",    # date>=CurrentTime-NDAYS + key check + count=0
+        "campaign_present_fixed_days",   # date>=CurrentTime-NDAYS + action_type IN LIST + count>0
+        "bonus_present_fixed_days",      # date>=CurrentTime-NDAYS + action_type IN LIST (BONUS) + count>0
+        "date_value_count",              # date col as ${op} ${val} + COUNT > 0
+
     ]
     id_col: Optional[str] = None
     flag_col: Optional[str] = None
@@ -629,6 +636,17 @@ def resolve_track2(p: Track2Input) -> str:
             f"AND {p.flag_col} ${{operator}} ${{value}} "
             f"AND COUNT_ALL({p.count_col}) > 0"
         )
+        # Fixed-day bonus presence: date window + action_type IN LIST + flag check + count > 0
+    if sub == "bonus_present_fixed_days":
+        date_col = get_date_col(p.table_name)
+        n_days = p.N if p.N is not None else 0
+        return (
+            f"{date_col} >= CurrentTime-{n_days}DAYS "
+            f"AND {p.action_type_col} IN LIST (BONUS;Bonus;bonus) "
+            f"AND {p.flag_col} ${{operator}} ${{value}} "
+            f"AND COUNT_ALL({p.count_col}) > 0"
+        )
+
 
     # Fixed-day promo absence: date window + action key check + count zero
     if sub == "campaign_absent_fixed_days":

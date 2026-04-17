@@ -61,10 +61,15 @@ class Track1Output(BaseModel):
     formula_op:   Optional[str]       = None  # "+" (default), future: "*"
     formula_name: Optional[str]       = None  # short label: "SUM_MOU", "COMBINED_DATA_VOL"
 
+    concrete_operator: Optional[str] = None
+    concrete_value:    Optional[str] = None
+
+
 
 class Track2TimeConstraint(BaseModel):
     type:  Literal["TODAY", "LAST_N_DAYS", "LAST_N_MONTHS", "THIS_MONTH"]
     value: Optional[int] = None   # None for TODAY / THIS_MONTH
+
 
 
 class Track2Output(BaseModel):
@@ -78,6 +83,9 @@ class Track2Output(BaseModel):
     # ── FIX 1: groupby support ────────────────────────────────────────────
     groupby_entity:  Optional[str] = None   # "subscriber", "device", "product", "product_description"
     threshold:       Optional[int] = None   # "at most N times" → e.g. 1, 2, 3, 4
+
+    concrete_operator: Optional[str] = None
+    concrete_value:    Optional[str] = None
 
 
 class Track3Output(BaseModel):
@@ -104,6 +112,9 @@ class Track3Output(BaseModel):
     time_unit:  Optional[Literal["DAYS", "MONTHS"]] = None
     id_col:     Optional[str]  = None   # join key when different from the KPI column
 
+    concrete_operator: Optional[str] = None
+    concrete_value:    Optional[str] = None
+
 
 class Track4Output(BaseModel):
     track:           int
@@ -125,6 +136,9 @@ class Track5Output(BaseModel):
     is_composite:          bool
     # ── FIX 1: groupby support ────────────────────────────────────────────
     groupby_entity:        Optional[str] = None   # "subscriber", "action_date", "device", "product"
+
+    concrete_operator: Optional[str] = None
+    concrete_value:    Optional[str] = None
 
 
 # ── Track 6 — JOIN_CHECK schemas ─────────────────────────────────────────
@@ -149,6 +163,9 @@ class Track6Output(BaseModel):
     groupby_entity:  Optional[str] = None   # "subscriber", "device", "product"
     is_composite:    bool = False
 
+    concrete_operator: Optional[str] = None
+    concrete_value:    Optional[str] = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompts
@@ -169,7 +186,7 @@ Rules:
 2. Current/latest value requiring retrieval (geo lookup, MAX, join on external ID) → Track 3. Direct profile attribute comparison (numeric threshold, categorical, status) → Track 2.
 3. Yes/no, exists/not-exists, subscribed/not-subscribed → Track 2.
 4. Ratio, percentage drop/increase, comparison between two metrics or two periods → Track 4.
-5. Variable placeholders like "N days", "specified", "given", "any" → Track 5.
+5. Variable placeholders for TIME WINDOWS like "last N days" or "last ${NoOfDays}" → Track 5. IMPORTANT: Do NOT route to Track 5 just because you see "a specified value", "a given value", or "a threshold" for the metric score. Track 5 is STRICTLY ONLY for parameterized TIME WINDOWS.
 6. Doubt between Track 1 and Track 3: ask whether the COUNT or time window is measuring a metric, or only confirming presence.
    - "how many times", "total count", "frequency", "visit count >= 10" → the count IS the metric → Track 1.
    - "at least once", "ever", "detected", "found", "present", "appeared" → COUNT is only confirming presence, the real subject is a location or attribute → Track 3.
@@ -199,7 +216,8 @@ Examples:
 - "customer is not subscribed to product id 500 in the last 40 days" → Track 2. Subscription check with time window is still Track 2, not Track 3.
 - "subscribed to product in last X days" or "not subscribed in last N days" → Track 5. X/N are placeholders — override rule 7b.
 - "purchased product 123 or 125 in the last 30 days" → Track 1. Count of purchase events filtered by a specific list of product IDs — not a subscription check.
-- "count of customers sent a promotion in the last 4 days" → Track 2. Count-based campaign presence check, not a time-series aggregation.
+- "count of customers sent a promotion in the last 4 days", "customers who have sent a bonus in the last 4 days" → Track 2. Count-based campaign/bonus presence check, not a time-series or snapshot aggregation.
+
 - "revenue drop of more than 20% compared to last month" → Track 4. Comparison across two periods.
 - "customers who received a bonus for action key X in the last N days" → Track 5. N is a runtime variable.
 
@@ -268,6 +286,16 @@ Rules:
    This rule applies ONLY when combining columns additively from ONE time window.
    If the condition compares the SAME KPI across TWO time periods → that is Track 4.
 
+12. If the condition specifies an exact comparison with a concrete value, extract it:
+- "greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
+- "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "AON > 50" → concrete_operator: ">", concrete_value: "50"
+- "was zero or null" → concrete_operator: "=", concrete_value: "0"
+If NO concrete value is mentioned (e.g. "meets a specified value", 
+"exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
+
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
   "track": 1,
@@ -331,6 +359,15 @@ Rules:
    Contrast — no value comparison means EXISTS/NOT_EXISTS:
    - "NBO product ID is available" → expected_state: EXISTS
    - "no active bundle"            → expected_state: NOT_EXISTS
+   9.If the condition specifies an exact comparison with a concrete value, extract it:
+- "greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
+- "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "AON > 50" → concrete_operator: ">", concrete_value: "50"
+- "was zero or null" → concrete_operator: "=", concrete_value: "0"
+If NO concrete value is mentioned (e.g. "meets a specified value", 
+"exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
 
 ## Groupby Detection
 
@@ -496,6 +533,16 @@ Output: sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = "HBBID
 Input : "Customers whose prepaid voice revenue on event date >= 500"
 Output: sub_type = "snapshot_by_id", N = null, time_unit = null, id_col = null
 
+If the condition specifies an exact comparison with a concrete value, extract it:
+- "greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
+- "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "AON > 50" → concrete_operator: ">", concrete_value: "50"
+- "was zero or null" → concrete_operator: "=", concrete_value: "0"
+If NO concrete value is mentioned (e.g. "meets a specified value", 
+"exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
+
 ────────────────────────────────────────────────────────────────
 OUTPUT FORMAT
 ────────────────────────────────────────────────────────────────
@@ -572,6 +619,15 @@ Rules:
 10. "per product" / "per refill" / "grouped by product" → groupby_entity: "product"
 11. If no date range is mentioned at all, set date_range to null.
 12. If no count condition is mentioned, set count_check to null.
+13.If the condition specifies an exact comparison with a concrete value, extract it:
+- "greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
+- "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "AON > 50" → concrete_operator: ">", concrete_value: "50"
+- "was zero or null" → concrete_operator: "=", concrete_value: "0"
+If NO concrete value is mentioned (e.g. "meets a specified value", 
+"exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
@@ -611,6 +667,15 @@ Rules:
 2. Never hardcode a value for the parameter — it must stay as a placeholder.
 3. "Last X days recharge revenue" → parameter_name="X", parameter_unit=DAY.
 4. "Subscriber subscribed to specified product" → parameter_name="PRODUCT_ID", parameter_unit=PRODUCT.
+5.If the condition specifies an exact comparison with a concrete value, extract it:
+- "greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
+- "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
+- "AON > 50" → concrete_operator: ">", concrete_value: "50"
+- "was zero or null" → concrete_operator: "=", concrete_value: "0"
+If NO concrete value is mentioned (e.g. "meets a specified value", 
+"exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
 
 ## Groupby Detection
 
@@ -629,6 +694,7 @@ If no groupby intent is detected, set groupby_entity to null.
 Examples:
 - "Promo sent for action key in last X days, grouped by action key and date" → groupby_entity: "action_date"
 - "Bonus not sent to action key in last X days" → groupby_entity: null (no grouping)
+
 
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
