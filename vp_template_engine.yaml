@@ -676,6 +676,10 @@ column_metadata:
         action_type_col: LC_ACTION_TYPE
         flag_col: L_ACTION_KEY
         count_col: L_AGG_MSISDN
+      campaign_absent_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: L_ACTION_KEY
+        count_col: L_AGG_MSISDN
 
   LIFECYCLE_BONUS:
     date_col: L_BONUS_SENT_DATE

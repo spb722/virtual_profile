@@ -636,6 +636,7 @@ def resolve_track2(p: Track2Input) -> str:
         n_days = p.N if p.N is not None else 0
         return (
             f"{date_col} >= CurrentTime-{n_days}DAYS "
+            f"AND {p.action_type_col} IN LIST (Promotion;PROMOTION;promotion) "
             f"AND {p.flag_col} ${{operator}} ${{value}} "
             f"AND COUNT_ALL({p.count_col}) = 0"
         )

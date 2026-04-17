@@ -415,13 +415,15 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
     else:
         return None
 
+    cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_absent_fixed_days", {})
     return {
-        "table_name":   kpi_info["table_name"],
-        "sub_type":     "campaign_absent_fixed_days",
-        "flag_col":     kpi_info["kpi_col"],
-        "count_col":    "L_AGG_MSISDN",
-        "N":            n_days,
-        "is_composite": extracted.is_composite,
+        "table_name":      kpi_info["table_name"],
+        "sub_type":        "campaign_absent_fixed_days",
+        "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+        "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
+        "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+        "N":               n_days,
+        "is_composite":    extracted.is_composite,
     }
 
 
