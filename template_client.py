@@ -427,14 +427,43 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
     }
 
 
+# def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
+#     """
+#     Route fixed-window promo PRESENCE checks (EXISTS + LIFECYCLE_PROMO/LIFECYCLE_CDR + time_constraint)
+#     to campaign_present_fixed_days template.
+#     Accepts both LIFECYCLE_PROMO and LIFECYCLE_CDR — KPI mapper may return either.
+#     Always forces table_name to LIFECYCLE_PROMO so template engine uses L_PROMO_SENT_DATE as date_col.
+#     """
+#     if str(kpi_info.get("table_name", "") or "").strip() not in ("LIFECYCLE_PROMO", "LIFECYCLE_CDR"):
+#         return None
+#     if str(extracted.expected_state or "").upper() != "EXISTS":
+#         return None
+#     time_constraint = extracted.time_constraint
+#     if not time_constraint:
+#         return None
+#     if time_constraint.type == "LAST_N_DAYS" and time_constraint.value is not None:
+#         n_days = time_constraint.value
+#     else:
+#         return None
+
+#     cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_present_fixed_days", {})
+#     return {
+#         "table_name":      "LIFECYCLE_PROMO",
+#         "sub_type":        "campaign_present_fixed_days",
+#         "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+#         "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
+#         "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+#         "N":               n_days,
+#         "is_composite":    extracted.is_composite,
+#     }
+
 def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
     """
-    Route fixed-window promo PRESENCE checks (EXISTS + LIFECYCLE_PROMO/LIFECYCLE_CDR + time_constraint)
-    to campaign_present_fixed_days template.
-    Accepts both LIFECYCLE_PROMO and LIFECYCLE_CDR — KPI mapper may return either.
-    Always forces table_name to LIFECYCLE_PROMO so template engine uses L_PROMO_SENT_DATE as date_col.
+    Route fixed-window promo/bonus PRESENCE checks (EXISTS + LIFECYCLE_PROMO/LIFECYCLE_BONUS/LIFECYCLE_CDR + time_constraint)
+    to campaign_present_fixed_days or bonus_present_fixed_days template.
+    Accepts LIFECYCLE_PROMO, LIFECYCLE_BONUS, and LIFECYCLE_CDR.
     """
-    if str(kpi_info.get("table_name", "") or "").strip() not in ("LIFECYCLE_PROMO", "LIFECYCLE_CDR"):
+    if str(kpi_info.get("table_name", "") or "").strip() not in ("LIFECYCLE_PROMO", "LIFECYCLE_BONUS", "LIFECYCLE_CDR"):
         return None
     if str(extracted.expected_state or "").upper() != "EXISTS":
         return None
@@ -445,6 +474,21 @@ def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict
         n_days = time_constraint.value
     else:
         return None
+
+    is_bonus = "bonus" in str(extracted.kpi).lower() or "bonus" in str(kpi_info.get("kpi_col")).lower()
+
+    if is_bonus:
+        cols = _COLUMN_META.get("LIFECYCLE_BONUS", {}).get("campaign_check_mappings", {}).get("bonus_present_fixed_days", {})
+        return {
+            "table_name":      "LIFECYCLE_BONUS",
+            "sub_type":        "bonus_present_fixed_days",
+            "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+            "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
+            "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+            "N":               n_days,
+            "is_composite":    extracted.is_composite,
+        }
+
     cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_present_fixed_days", {})
     return {
         "table_name":      "LIFECYCLE_PROMO",

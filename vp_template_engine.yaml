@@ -330,6 +330,14 @@ track_2:
       AND {action_type_col} IN LIST (Promotion;PROMOTION;promotion)
       AND {flag_col} ${operator} ${value}
       AND COUNT_ALL({count_col}) > 0
+
+          # Bonus present within last N days (fixed window, action_type IN LIST)
+    template_bonus_present_fixed_days: >
+      {date_col} >= CurrentTime-{N}DAYS
+      AND {action_type_col} IN LIST (BONUS;Bonus;bonus)
+      AND {flag_col} ${operator} ${value}
+      AND COUNT_ALL({count_col}) > 0
+
     # Count-based flag present today
     template_count_flag_present_today: >
       {date_col} = CurrentTime
@@ -686,9 +694,15 @@ column_metadata:
     kpi_examples:
       - L_ACTION_KEY
       - L_AGG_MSISDN
-      - L_BONUS_ACTION_KEY
+      - L_BONUS_ACTION_KEY 
+    
     groupby_mappings:
       subscriber: L_AGG_MSISDN
+    campaign_check_mappings:
+      bonus_present_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: LC_SEGMENT_NAME
+        count_col: L_AGG_MSISDN
   LIFECYCLE_CDR:
     date_col: L_SENT_DATE
     groupby_mappings:
