@@ -706,6 +706,10 @@ column_metadata:
         action_type_col: LC_ACTION_TYPE
         flag_col: LC_SEGMENT_NAME
         count_col: L_AGG_MSISDN
+      bonus_absent_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: L_ACTION_KEY
+        count_col: L_AGG_MSISDN
   LIFECYCLE_CDR:
     date_col: L_SENT_DATE
     kpi_examples:

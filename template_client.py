@@ -396,9 +396,9 @@ def _map_state_to_subtype(expected_state: str) -> str:
 
 def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
     """
-    Route fixed-window promo absence checks through the LIFECYCLE_CDR campaign
-    history branch. This is intentionally narrow so the rest of Track 2 keeps
-    its existing behavior.
+    Route fixed-window promo/bonus absence checks through the LIFECYCLE_CDR campaign
+    history branch. Detects bonus vs promo from extracted KPI text and routes to
+    the appropriate sub_type.
     """
     if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_CDR":
         return None
@@ -415,7 +415,30 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
     else:
         return None
 
-    cols = _COLUMN_META.get("LIFECYCLE_CDR", {}).get("campaign_check_mappings", {}).get("campaign_absent_fixed_days", {})
+    # ── FIX 6: Detect bonus vs promo ─────────────────────────────────────
+    is_bonus = (
+        "bonus" in str(extracted.kpi).lower()
+        or "bonus" in str(kpi_info.get("kpi_col", "")).lower()
+    )
+
+    if is_bonus:
+        cols = _COLUMN_META.get("LIFECYCLE_BONUS", {}).get(
+            "campaign_check_mappings", {}
+        ).get("bonus_absent_fixed_days", {})
+        return {
+            "table_name":      "LIFECYCLE_BONUS",   # logical table → date_col = L_BONUS_SENT_DATE
+            "sub_type":        "bonus_absent_fixed_days",
+            "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+            "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
+            "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+            "N":               n_days,
+            "is_composite":    extracted.is_composite,
+        }
+
+    # Default: promo absence (existing behavior)
+    cols = _COLUMN_META.get("LIFECYCLE_CDR", {}).get(
+        "campaign_check_mappings", {}
+    ).get("campaign_absent_fixed_days", {})
     return {
         "table_name":      "LIFECYCLE_CDR",
         "sub_type":        "campaign_absent_fixed_days",
@@ -425,6 +448,7 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
         "N":               n_days,
         "is_composite":    extracted.is_composite,
     }
+
 
 
 # def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
