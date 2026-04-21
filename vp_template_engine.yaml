@@ -688,6 +688,9 @@ column_metadata:
         action_type_col: LC_ACTION_TYPE
         flag_col: L_ACTION_KEY
         count_col: L_AGG_MSISDN
+      promo_check_fixed_days:
+        flag_col: L_ACTION_KEY
+        count_col: L_AGG_MSISDN
 
   LIFECYCLE_BONUS:
     date_col: L_BONUS_SENT_DATE
@@ -705,9 +708,32 @@ column_metadata:
         count_col: L_AGG_MSISDN
   LIFECYCLE_CDR:
     date_col: L_SENT_DATE
+    kpi_examples:
+      - L_ACTION_KEY
+      - LC_MSISDN
+      - LC_SEGMENT_NAME
+      - LC_ACTION_TYPE
     groupby_mappings:
+      action_date: "L_ACTION_KEY,L_SENT_DATE"
       subscriber: LC_MSISDN
       device: L_IMEI
+    campaign_check_mappings:
+      bonus_not_sent_ak:
+        sent_date_col: L_SENT_DATE
+        action_key_col: LC_SEGMENT_NAME
+        msisdn_col: LC_MSISDN
+      promo_sent_ak:
+        sent_date_col: L_SENT_DATE
+        action_key_col: L_ACTION_KEY
+        msisdn_col: LC_MSISDN
+      campaign_present_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: L_ACTION_KEY
+        count_col: LC_MSISDN
+      campaign_absent_fixed_days:
+        action_type_col: LC_ACTION_TYPE
+        flag_col: L_ACTION_KEY
+        count_col: LC_MSISDN
     join_mappings:
       HBB_imeiNumber: L_IMEI
       OM_MSISDN: LC_MSISDN

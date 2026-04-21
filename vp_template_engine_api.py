@@ -101,6 +101,7 @@ class Track2Input(BaseModel):
         "count_flag_present_today",      # date=CurrentTime + null guard + count>=1
         "campaign_absent_fixed_days",    # date>=CurrentTime-NDAYS + key check + count=0
         "campaign_present_fixed_days",   # date>=CurrentTime-NDAYS + action_type IN LIST + count>0
+        "promo_check_fixed_days",        # date>=CurrentTime-NDAYS + flag check + groupby COUNT > 0
         "date_value_count",              # date col as ${op} ${val} + COUNT > 0
         "multi_null_date_value_count"    # multi null guards + date as ${op} ${val} + COUNT > 0
 
@@ -133,6 +134,7 @@ class Track2Input(BaseModel):
     null_col_2: Optional[str] = None          # second null guard col (multi)
     count_threshold_op: Optional[str] = None  # "=", ">", ">=", "<"
     count_threshold_val: Optional[str] = None # "0", "1", "2"
+    dedup_qualifier: Optional[str] = "none"   # "none" | "groupby_only" | "groupby_max"
 
 
 class Track3Input(BaseModel):
@@ -647,6 +649,20 @@ def resolve_track2(p: Track2Input) -> str:
             f"AND COUNT_ALL({p.count_col}) > 0"
         )
 
+
+    # Promo presence with groupby dedup — no action_type IN LIST, uses __groupby_ COUNT
+    if sub == "promo_check_fixed_days":
+        date_col = get_date_col(p.table_name)
+        n_days = p.N if p.N is not None else 0
+        count_expr = f"COUNT_ALL({p.count_col})__groupby_{p.flag_col}"
+        parts = [
+            f"{date_col} >= CurrentTime-{n_days}DAYS",
+            f"{p.flag_col} ${{operator}} ${{value}}",
+            f"{count_expr} > 0",
+        ]
+        if p.dedup_qualifier == "groupby_max":
+            parts.append(f"And Max({date_col}) <> NULL")
+        return " AND ".join(parts)
 
     # Fixed-day promo absence: date window + action key check + count zero
     if sub == "campaign_absent_fixed_days":

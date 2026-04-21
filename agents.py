@@ -83,6 +83,8 @@ class Track2Output(BaseModel):
     # ── FIX 1: groupby support ────────────────────────────────────────────
     groupby_entity:  Optional[str] = None   # "subscriber", "device", "product", "product_description"
     threshold:       Optional[int] = None   # "at most N times" → e.g. 1, 2, 3, 4
+    # ── FIX 3: dedup qualifier for promo presence checks ─────────────────
+    dedup_qualifier: Optional[Literal["none", "groupby_only", "groupby_max"]] = "none"
 
     concrete_operator: Optional[str] = None
     concrete_value:    Optional[str] = None
@@ -388,6 +390,19 @@ Examples:
 - "Action key count per product and description" → groupby_entity: "product_description"
 - "NBO product ID is available" → groupby_entity: null (no grouping)
 
+## Dedup Qualifier Detection
+
+For promo/campaign presence checks, detect whether the user wants deduplication:
+
+dedup_qualifier:
+  - "none"         → default, no dedup (produces LC_ACTION_TYPE IN LIST pattern)
+  - "groupby_only" → user says "latest record" or "deduplicated" or "most recent"
+                     WITHOUT mentioning send date specifically
+  - "groupby_max"  → user says "latest record by send date" or "most recent send date"
+                     or "by promotion send date"
+
+If no promo/campaign presence check is detected, or no dedup phrase is present, set dedup_qualifier to "none".
+
 Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
   "track": 2,
@@ -398,7 +413,8 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
   "time_constraint": null,
   "is_composite": false,
   "groupby_entity": null,
-  "threshold": null
+  "threshold": null,
+  "dedup_qualifier": "none"
 }"""
 
 

@@ -396,11 +396,11 @@ def _map_state_to_subtype(expected_state: str) -> str:
 
 def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
     """
-    Route fixed-window promo absence checks through a dedicated Track 2 branch.
-    This is intentionally narrow so the rest of Track 2 keeps its existing
-    behavior.
+    Route fixed-window promo absence checks through the LIFECYCLE_CDR campaign
+    history branch. This is intentionally narrow so the rest of Track 2 keeps
+    its existing behavior.
     """
-    if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_PROMO":
+    if str(kpi_info.get("table_name", "") or "").strip() != "LIFECYCLE_CDR":
         return None
     if str(extracted.expected_state or "").upper() != "NOT_EXISTS":
         return None
@@ -415,13 +415,13 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
     else:
         return None
 
-    cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("campaign_absent_fixed_days", {})
+    cols = _COLUMN_META.get("LIFECYCLE_CDR", {}).get("campaign_check_mappings", {}).get("campaign_absent_fixed_days", {})
     return {
-        "table_name":      kpi_info["table_name"],
+        "table_name":      "LIFECYCLE_CDR",
         "sub_type":        "campaign_absent_fixed_days",
         "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
         "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
-        "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+        "count_col":       cols.get("count_col", "LC_MSISDN"),
         "N":               n_days,
         "is_composite":    extracted.is_composite,
     }
@@ -460,7 +460,7 @@ def _build_track2_fixed_promo_absence_payload(extracted: Track2Output, kpi_info:
 def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict) -> dict | None:
     """
     Route fixed-window promo/bonus PRESENCE checks (EXISTS + LIFECYCLE_PROMO/LIFECYCLE_BONUS/LIFECYCLE_CDR + time_constraint)
-    to campaign_present_fixed_days or bonus_present_fixed_days template.
+    to campaign_present_fixed_days, bonus_present_fixed_days, or promo_check_fixed_days template.
     Accepts LIFECYCLE_PROMO, LIFECYCLE_BONUS, and LIFECYCLE_CDR.
     """
     if str(kpi_info.get("table_name", "") or "").strip() not in ("LIFECYCLE_PROMO", "LIFECYCLE_BONUS", "LIFECYCLE_CDR"):
@@ -485,6 +485,20 @@ def _build_track2_promo_presence_payload(extracted: Track2Output, kpi_info: dict
             "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
             "action_type_col": cols.get("action_type_col", "LC_ACTION_TYPE"),
             "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+            "N":               n_days,
+            "is_composite":    extracted.is_composite,
+        }
+
+    dedup = getattr(extracted, "dedup_qualifier", "none") or "none"
+
+    if dedup in ("groupby_only", "groupby_max"):
+        cols = _COLUMN_META.get("LIFECYCLE_PROMO", {}).get("campaign_check_mappings", {}).get("promo_check_fixed_days", {})
+        return {
+            "table_name":      "LIFECYCLE_PROMO",
+            "sub_type":        "promo_check_fixed_days",
+            "flag_col":        cols.get("flag_col", kpi_info["kpi_col"]),
+            "count_col":       cols.get("count_col", "L_AGG_MSISDN"),
+            "dedup_qualifier": dedup,
             "N":               n_days,
             "is_composite":    extracted.is_composite,
         }
@@ -565,11 +579,11 @@ def _looks_like_subscription_target(kpi_info: dict) -> bool:
 def _infer_track5_campaign_subtype(extracted: Track5Output, kpi_info: dict) -> str | None:
     """
     Detect bonus/promo campaign patterns from the extracted KPI text and return
-    the right sub_type.  Table name is used as a guard — only LIFECYCLE tables
-    enter this path.
+    the right sub_type. Table name is used as a guard — only LIFECYCLE_CDR
+    campaign history enters this path.
     """
     table_name = str(kpi_info.get("table_name", "") or "").strip().upper()
-    if table_name not in ("LIFECYCLE_PROMO", "LIFECYCLE_BONUS"):
+    if table_name != "LIFECYCLE_CDR":
         return None
 
     text = (extracted.kpi or "").lower()
