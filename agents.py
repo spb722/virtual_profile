@@ -763,7 +763,10 @@ def call_llm(system_prompt: str, user_prompt: str, schema_class: Type[BaseModel]
     raw     = response.choices[0].message.content
     cleaned = strip_json(raw)
     logger.debug("LLM raw response: %s", cleaned)
-    return schema_class.model_validate_json(cleaned)
+    # return schema_class.model_validate_json(cleaned)
+    output = schema_class.model_validate_json(cleaned)
+    print(f"🎯 AI AGENT OUTPUT FOR {schema_class.__name__}:\n{output.model_dump_json(indent=2)}")
+    return output
 
 
 # ─────────────────────────────────────────────────────────────────────────────

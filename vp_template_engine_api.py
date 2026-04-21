@@ -452,6 +452,15 @@ def resolve_track1(p: Track1Input) -> str:
                            .replace("{vp_name}", p.vp_name) \
                            .replace("{kpi_col}", p.kpi_col)
             else:
+                if p.filter_col and p.filter_val:
+                    tmpl = ln["template_months_filtered_count"]
+                    return tmpl.replace("{date_col}", date_col) \
+                               .replace("{N}", n) \
+                               .replace("{filter_col}", p.filter_col) \
+                               .replace("{filter_val}", p.filter_val) \
+                               .replace("{agg}", p.aggregation) \
+                               .replace("{kpi_col}", p.kpi_col)
+                               
                 tmpl = ln["template_months_sum"]
                 return tmpl.replace("{date_col}", date_col) \
                            .replace("{N}", n) \

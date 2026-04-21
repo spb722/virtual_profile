@@ -158,6 +158,11 @@ track_1:
       {date_col} >= CurrentTime-{N}DAYS
       AND {filter_col} = {filter_val}
       AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+    # Range months with dimension filter
+    template_months_filtered_count: >
+      {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
+      AND {filter_col} = {filter_val}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # Multi-column virtual KPI with per-column guards and open date range
     # guard_exprs is built dynamically: "col1 > 0 AND col2 > 0 AND ..."
     template_days_open_virtual_guarded: >
