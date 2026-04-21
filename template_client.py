@@ -139,6 +139,7 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
             payload["filter_col"] = extracted.filter_col
     if extracted.filter_values:
         payload["filter_values"] = ";".join(extracted.filter_values)
+        
     return payload
 
 
@@ -646,3 +647,6 @@ def _resolve_campaign_columns(table_name: str, sub_type: str) -> dict:
             f"No campaign_check_mapping for sub_type '{sub_type}' on table '{table_name}'"
         )
     return cols
+
+
+
