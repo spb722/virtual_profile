@@ -110,6 +110,7 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
                 "type":  tw.type,
                 "value": tw.value,
                 "unit":  tw.unit,
+                "exact": tw.exact,
             },
             "is_composite": extracted.is_composite,
         }
@@ -127,7 +128,8 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
         "time_window": {
             "type":  tw.type,
             "value": tw.value,
-            "unit":  tw.unit
+            "unit":  tw.unit,
+            "exact": tw.exact,
         },
         "is_composite": extracted.is_composite
     }

@@ -46,6 +46,7 @@ class TimeWindow(BaseModel):
     type:  str
     value: Optional[int]  = None
     unit:  Optional[str]  = None
+    exact: Optional[bool] = False
 
 
 class Track1Output(BaseModel):
@@ -243,6 +244,7 @@ Fields to extract:
 - time_window.value: the numeric value from the input (e.g. 30, 3, 90). null for MTD/LMTD.
 - time_window.unit: the time unit mentioned in the input — DAY, WEEK, or MONTH. null for MTD/LMTD.
   "last 30 days" → unit=DAY. "last 3 months" → unit=MONTH. "rolling week 5" → unit=WEEK.
+- time_window.exact: true if the description specifically says "exactly", "on the exact", or "strictly" regarding the time window (e.g. "exactly 8 days ago"). Defaults to false for normal ranges like "last 8 days".
 - is_composite: false
 - filter_col: column being filtered (natural language, e.g. "refill ID", "action key") — null if no list filter
 - filter_values: list of specific allowed values (e.g. ["MD03", "M138"]) — null if no list filter

@@ -231,6 +231,11 @@ track_1:
       {filter_col} IN LIST ({filter_values})
       AND {date_col} >= CurrentTime-{N}DAYS
       AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+    # Exact date match (= only) + variable aggregation
+    template_exact_date_agg: >
+      {filter_col} IN LIST ({filter_values})
+      AND {date_col} = CurrentTime-{N}DAYS
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
 
 
 # =============================================================================
