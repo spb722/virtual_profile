@@ -48,12 +48,12 @@ track_1:
     # W1 uses a different pattern (< CurrentTime instead of <=)
     template_w1: >
       {date_col} >= CurrentTime-7DAYS AND {date_col} < CurrentTime
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # W2-W8 use start/end day offsets
     template_w2_plus: >
       {date_col} >= CurrentTime-{week_start}DAYS
       AND {date_col} <= CurrentTime-{week_end}DAYS
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # When KPI is a computed virtual formula (e.g. col1+col2)
     template_w1_virtual: >
       {date_col} >= CurrentTime-7DAYS AND {date_col} < CurrentTime
@@ -83,7 +83,7 @@ track_1:
     description: "Time-series metric for a specific completed calendar month"
     template: >
       {date_col} = CurrentMonth-{N}MONTHS
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     template_virtual: >
       {date_col} = CurrentMonth-{N}MONTHS
       AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
@@ -91,7 +91,7 @@ track_1:
     template_with_filter: >
       {date_col} = CurrentMonth-{N}MONTHS
       AND {filter_col} = {filter_val}
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 1.6 — Fixed Week
@@ -105,7 +105,7 @@ track_1:
   fixed_week:
     description: "Time-series metric for a specific completed calendar week"
     template: >
-      {date_col} = CurrentWeek-{N}WEEKS AND {agg}({kpi_col}) ${operator} ${value}
+      {date_col} = CurrentWeek-{N}WEEKS AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     template_virtual: >
       {date_col} = CurrentWeek-{N}WEEKS
       AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
@@ -128,11 +128,11 @@ track_1:
     # Open range — most common (>= only, no upper bound)
     template_days_open: >
       {date_col} >= CurrentTime-{N}DAYS
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # Closed range — explicit upper bound
     template_days_closed: >
       {date_col} >= CurrentTime-{N}DAYS AND {date_col} < CurrentTime
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # Last N days with AVG formula — virtual KPI (e.g. LAST98DAYS_TOTAL_REVENUE)
     template_days_avg: >
       {date_col} >= CurrentTime-{N}DAYS
@@ -144,7 +144,7 @@ track_1:
     # Last N completed months with SUM/non-AVG aggregation
     template_months_sum: >
       {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # Last N completed weeks with AVG formula (e.g. LAST4WEEKS_OG_CALL_REVENUE)
     template_weeks_avg: >
       {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
@@ -152,12 +152,17 @@ track_1:
     # Last N completed weeks with SUM/non-AVG aggregation
     template_weeks_sum: >
       {date_col} >= CurrentWeek-{N}WEEKS AND {date_col} < CurrentWeek
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # With dimension filter (e.g. dpi protocol)
     template_days_with_filter: >
       {date_col} >= CurrentTime-{N}DAYS
       AND {filter_col} = {filter_val}
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+    # Range months with dimension filter
+    template_months_filtered_count: >
+      {date_col} >= CurrentMonth-{N}MONTHS AND {date_col} < CurrentMonth
+      AND {filter_col} = {filter_val}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # Multi-column virtual KPI with per-column guards and open date range
     # guard_exprs is built dynamically: "col1 > 0 AND col2 > 0 AND ..."
     template_days_open_virtual_guarded: >
@@ -166,7 +171,7 @@ track_1:
       AND {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
     # No date filter at all — bare SUM with null guard
     template_no_date: >
-      {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+      {kpi_col} <> NULL AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     # No date filter, multi-column virtual KPI
     template_no_date_virtual: >
       {agg}(V{{vp_name}}=f{{formula}}) ${operator} ${value}
@@ -186,14 +191,14 @@ track_1:
     description: "Month-to-date or last-month-to-date aggregated metric"
     template_mtd: >
       {date_col} = CurrentMonth
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     template_lmtd: >
       {date_col} >= CurrentMonth-1MONTHS
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
     template_mtd_with_filter: >
       {date_col} = CurrentMonth
       AND {filter_col} = {filter_val}
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
 
   # ---------------------------------------------------------------------------
   # Template 1.5 — Filtered Count (IN LIST)
@@ -215,17 +220,22 @@ track_1:
     template_range: >
       {date_col} >= CurrentTime-{N}DAYS
       AND {filter_col} IN LIST ({filter_values})
-      AND COUNT_ALL({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND COUNT_ALL({kpi_col}) ${operator} ${value}
     # Exact date match (= only) with IN LIST filter
     template_exact_date: >
       {date_col} = CurrentTime-{N}DAYS
       AND {filter_col} IN LIST ({filter_values})
-      AND COUNT_ALL({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND COUNT_ALL({kpi_col}) ${operator} ${value}
     # IN LIST filter + date range + variable aggregation (SUM/AVG/etc.)
     template_range_agg: >
       {filter_col} IN LIST ({filter_values})
       AND {date_col} >= CurrentTime-{N}DAYS
-      AND {agg}({kpi_col}) ${operator} ${value}
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+    # Exact date match (= only) + variable aggregation
+    template_exact_date_agg: >
+      {filter_col} IN LIST ({filter_values})
+      AND {date_col} = CurrentTime-{N}DAYS
+      AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
 
 
 # =============================================================================
@@ -331,7 +341,7 @@ track_2:
       AND {flag_col} ${operator} ${value}
       AND COUNT_ALL({count_col}) > 0
 
-          # Bonus present within last N days (fixed window, action_type IN LIST)
+    # Bonus present within last N days (fixed window, action_type IN LIST)
     template_bonus_present_fixed_days: >
       {date_col} >= CurrentTime-{N}DAYS
       AND {action_type_col} IN LIST (BONUS;Bonus;bonus)
@@ -585,6 +595,7 @@ track_5:
 column_metadata:
 
   COMMON_Seg_Fct:
+    
     date_col: COMMON_Event_Date
     kpi_examples:
       - COMMON_Total_Revenue
@@ -612,6 +623,13 @@ column_metadata:
       - COMMON_TIKTOK_VOLUME
       - COMMON_FACEBOOK_VOLUME
       - COMMON_INSTAGRAM_VOLUME
+  
+  # COMMON_Data_Volume:
+  #   null_guard: true
+
+  # S_TOTAL_DATA_USAGE:
+  #   null_guard: true
+
 
   Recharge_Seg_Fact:
     date_col: RECHARGE_Event_Date

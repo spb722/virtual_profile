@@ -1,3 +1,5 @@
+import json
+
 """
 template_client.py
 ------------------
@@ -108,11 +110,13 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
                 "type":  tw.type,
                 "value": tw.value,
                 "unit":  tw.unit,
+                "exact": tw.exact,
             },
             "is_composite": extracted.is_composite,
         }
         if vp_name:
             payload["vp_name"] = vp_name
+        print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")    
         return payload
 
     # ── Single-KPI path (unchanged) ───────────────────────────────────────────
@@ -124,7 +128,8 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
         "time_window": {
             "type":  tw.type,
             "value": tw.value,
-            "unit":  tw.unit
+            "unit":  tw.unit,
+            "exact": tw.exact,
         },
         "is_composite": extracted.is_composite
     }
@@ -139,6 +144,10 @@ def build_track1_payload(extracted: Track1Output, vp_name: str = None) -> dict:
             payload["filter_col"] = extracted.filter_col
     if extracted.filter_values:
         payload["filter_values"] = ";".join(extracted.filter_values)
+        if len(extracted.filter_values) == 1:
+            payload["filter_val"] = extracted.filter_values[0]
+    print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
+            
     return payload
 
 
@@ -206,6 +215,7 @@ def build_track2_payload(extracted: Track2Output) -> dict:
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
+        print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
     return payload
 
 
@@ -345,6 +355,7 @@ def build_track5_payload(extracted: Track5Output) -> dict:
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
+    print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
     return payload
 
 
@@ -374,6 +385,7 @@ def build_track6_payload(extracted: Track6Output) -> dict:
         }
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
+    print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
     return payload
 
 
@@ -646,3 +658,6 @@ def _resolve_campaign_columns(table_name: str, sub_type: str) -> dict:
             f"No campaign_check_mapping for sub_type '{sub_type}' on table '{table_name}'"
         )
     return cols
+
+
+

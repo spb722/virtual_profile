@@ -58,6 +58,7 @@ class TimeWindow(BaseModel):
     type: Literal["ROLLING_WEEK", "FIXED_WEEK", "FIXED_MONTH", "LAST_N", "MTD", "LMTD"]
     value: Optional[int] = None
     unit: Optional[Literal["DAY", "WEEK", "MONTH"]] = None
+    exact: bool = False
 
 
 class Track1Input(BaseModel):
@@ -342,12 +343,23 @@ def _apply_groupby(condition: str, groupby_cols: str) -> str:
         rf'\1__groupby_{groupby_cols}',
         condition
     )
+#     condition = re.sub(
+# r'((?:COUNT_ALL|SUM|MAX|MIN|AVG|COUNT)\([^)]+\))__groupby_[A-Za-z0-9_,]+',
+# rf'\1__groupby_{groupby_cols}',
+# condition
+# )
     # Then: append to any COUNT_ALL that still has no __groupby_
     condition = re.sub(
         r'(COUNT_ALL\([^)]+\))(?!__groupby_)',
         rf'\1__groupby_{groupby_cols}',
         condition
     )
+#     condition = re.sub(
+# r'((?:COUNT_ALL|SUM|MAX|MIN|AVG|COUNT)\([^)]+\))(?!__groupby_)',
+# rf'\1__groupby_{groupby_cols}',
+# condition
+# )
+    
     return condition
 
 
@@ -452,6 +464,15 @@ def resolve_track1(p: Track1Input) -> str:
                            .replace("{vp_name}", p.vp_name) \
                            .replace("{kpi_col}", p.kpi_col)
             else:
+                if p.filter_col and p.filter_val:
+                    tmpl = ln["template_months_filtered_count"]
+                    return tmpl.replace("{date_col}", date_col) \
+                               .replace("{N}", n) \
+                               .replace("{filter_col}", p.filter_col) \
+                               .replace("{filter_val}", p.filter_val) \
+                               .replace("{agg}", p.aggregation) \
+                               .replace("{kpi_col}", p.kpi_col)
+                               
                 tmpl = ln["template_months_sum"]
                 return tmpl.replace("{date_col}", date_col) \
                            .replace("{N}", n) \
@@ -492,14 +513,14 @@ def resolve_track1(p: Track1Input) -> str:
         if p.filter_col and p.filter_values:
             fc = TEMPLATES["track_1"]["filtered_count"]
             if p.aggregation == "COUNT_ALL":
-                tmpl = fc["template_range"]
+                tmpl = fc["template_exact_date"] if getattr(tw, "exact", False) else fc["template_range"]
                 return tmpl.replace("{date_col}", date_col) \
                            .replace("{N}", n) \
                            .replace("{filter_col}", p.filter_col) \
                            .replace("{filter_values}", p.filter_values) \
                            .replace("{kpi_col}", p.kpi_col)
             else:
-                tmpl = fc["template_range_agg"]
+                tmpl = fc["template_exact_date_agg"] if getattr(tw, "exact", False) else fc["template_range_agg"]
                 return tmpl.replace("{filter_col}", p.filter_col) \
                            .replace("{filter_values}", p.filter_values) \
                            .replace("{date_col}", date_col) \
