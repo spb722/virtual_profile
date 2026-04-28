@@ -215,7 +215,7 @@ def build_track2_payload(extracted: Track2Output) -> dict:
     # ── FIX 1: pass groupby_entity if present ─────────────────────────────
     if extracted.groupby_entity:
         payload["groupby_entity"] = extracted.groupby_entity
-        print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
+    print(f"📦 FINAL ENGINE PAYLOAD:\n{json.dumps(payload, indent=2)}")  
     return payload
 
 
@@ -559,6 +559,11 @@ def _infer_track5_subscription_subtype(extracted: Track5Output, kpi_info: dict) 
     """
     if not _looks_like_subscription_target(kpi_info):
         return None
+
+    if getattr(extracted, "expected_state", None) == "NOT_SUBSCRIBED":
+        return "subscription_x_days_absent"
+    elif getattr(extracted, "expected_state", None) == "SUBSCRIBED":
+        return "subscription_x_days_present"
 
     text = " ".join(
         part.strip().lower()

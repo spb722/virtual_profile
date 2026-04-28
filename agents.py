@@ -142,6 +142,7 @@ class Track5Output(BaseModel):
 
     concrete_operator: Optional[str] = None
     concrete_value:    Optional[str] = None
+    expected_state: Optional[str] = None
 
 
 # ── Track 6 — JOIN_CHECK schemas ─────────────────────────────────────────
@@ -673,6 +674,13 @@ You will receive a natural language description already classified as Track 5: P
 
 Fields to extract:
 - kpi: core metric being measured (e.g. "recharge revenue", "billing event", "campaign response")
+- expected_state:
+    EXISTS         → record/flag is present (no value comparison)
+    NOT_EXISTS     → record/flag is absent (no value comparison)
+    TRUE / FALSE   → boolean flag check
+    SUBSCRIBED     → subscription active
+    NOT_SUBSCRIBED → subscription absent
+    ASSIGNED       → attribute compared against a threshold or category (>, <, >=, =, etc.)
 - aggregation: AVG | SUM | COUNT | MAX | MIN
 - parameter_name: runtime variable name (X | N | PRODUCT_ID | PLAN_ID | NoOfDays | ...)
 - parameter_unit: DAY | WEEK | MONTH | PRODUCT | PLAN | null
@@ -682,10 +690,13 @@ Fields to extract:
 
 Rules:
 1. "specified", "given", "any", "N days", "X months", "defined" → indicates a runtime parameter.
-2. Never hardcode a value for the parameter — it must stay as a placeholder.
-3. "Last X days recharge revenue" → parameter_name="X", parameter_unit=DAY.
-4. "Subscriber subscribed to specified product" → parameter_name="PRODUCT_ID", parameter_unit=PRODUCT.
-5.If the condition specifies an exact comparison with a concrete value, extract it:
+2. "Segment name" type descriptions → expected_state = ASSIGNED.
+3. "Next best offer exists" → expected_state = EXISTS.
+4. "Not subscribed to product" → expected_state = NOT_SUBSCRIBED.
+5. Never hardcode a value for the parameter — it must stay as a placeholder.
+6. "Last X days recharge revenue" → parameter_name="X", parameter_unit=DAY.
+7. "Subscriber subscribed to specified product" → parameter_name="PRODUCT_ID", parameter_unit=PRODUCT.
+8.If the condition specifies an exact comparison with a concrete value, extract it:
 - "greater than 50" → concrete_operator: ">", concrete_value: "50"
 - "VALUE_SEGMENT_OVERALL = HVC" → concrete_operator: "=", concrete_value: "HVC"
 - "age on network is greater than 50" → concrete_operator: ">", concrete_value: "50"
@@ -693,6 +704,7 @@ Rules:
 - "was zero or null" → concrete_operator: "=", concrete_value: "0"
 If NO concrete value is mentioned (e.g. "meets a specified value", 
 "exceeds a threshold"), leave both as null — ${operator} ${value} will be used.
+
 
 
 ## Groupby Detection
@@ -718,6 +730,7 @@ Respond ONLY in this JSON format with no extra text, no backticks, no markdown:
 {
   "track": 5,
   "kpi": "<kpi>",
+  "expected_state": "<STATE>",
   "aggregation": "<AGG>",
   "parameter_name": "<PARAM>",
   "parameter_unit": "<UNIT|null>",

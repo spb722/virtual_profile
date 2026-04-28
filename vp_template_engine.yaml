@@ -222,15 +222,18 @@ track_1:
       AND {filter_col} IN LIST ({filter_values})
       AND {kpi_col} <> NULL AND COUNT_ALL({kpi_col}) ${operator} ${value}
     # Exact date match (= only) with IN LIST filter
+
     template_exact_date: >
       {date_col} = CurrentTime-{N}DAYS
       AND {filter_col} IN LIST ({filter_values})
       AND {kpi_col} <> NULL AND COUNT_ALL({kpi_col}) ${operator} ${value}
+      
     # IN LIST filter + date range + variable aggregation (SUM/AVG/etc.)
     template_range_agg: >
       {filter_col} IN LIST ({filter_values})
       AND {date_col} >= CurrentTime-{N}DAYS
       AND {kpi_col} <> NULL AND {agg}({kpi_col}) ${operator} ${value}
+      
     # Exact date match (= only) + variable aggregation
     template_exact_date_agg: >
       {filter_col} IN LIST ({filter_values})
@@ -314,6 +317,7 @@ track_2:
     # Count-based flag (record absent = COUNT = 0)
     template_count_flag_absent: >
       {flag_col} <> NULL AND COUNT_ALL({count_col}) = 0
+      
     # Segment/type equality check with count
     template_segment_type: >
       {segment_col} = '{segment_val}' AND COUNT_ALL({count_col}) ${operator} ${value}
