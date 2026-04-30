@@ -8,6 +8,7 @@ from agents import (
     classify,
     extract_track1, extract_track2, extract_track3,
     extract_track4, extract_track5, extract_track6,
+    enhance_kpi
 )
 from name_generator import generate_vp_name
 from template_client import (
@@ -27,6 +28,18 @@ MAX_DEPTH = 6
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ NEW: Concrete substitution helper
 # ─────────────────────────────────────────────────────────────────────────────
+
+def enhance_extracted_kpi(condition: str, extracted) -> None:
+    """
+    Checks if the extracted object has a single 'kpi' field and enhances it synchronously.
+    Updates the extracted object in-place so the rest of the flow uses the refined KPI.
+    """
+    if hasattr(extracted, "kpi") and extracted.kpi:
+        extracted.kpi = enhance_kpi(condition, extracted.kpi)
+    
+    # Optional: If you ever want to enhance track 1 kpi_list individually, do it here
+    if hasattr(extracted, "kpi_list") and extracted.kpi_list:
+        extracted.kpi_list = [enhance_kpi(condition, k) for k in extracted.kpi_list]
 
 def apply_concrete_values(template: str, extracted) -> str:
     """
@@ -123,6 +136,7 @@ def resolve(condition: str, registry: VPRegistry, depth: int = 0) -> ResolveResu
     # ─────────────────────────────────────────────────────────────────────────
     if track == 1:
         extracted = extract_track1(condition)
+        enhance_extracted_kpi(condition, extracted)
 
         vp_name   = generate_vp_name(1, extracted.model_dump())
         payload   = build_track1_payload(extracted, vp_name=vp_name)
@@ -141,6 +155,7 @@ def resolve(condition: str, registry: VPRegistry, depth: int = 0) -> ResolveResu
     # ─────────────────────────────────────────────────────────────────────────
     elif track == 2:
         extracted = extract_track2(condition)
+        enhance_extracted_kpi(condition, extracted)
 
         payload   = build_track2_payload(extracted)
         template  = call_template_engine(2, payload)
@@ -160,6 +175,7 @@ def resolve(condition: str, registry: VPRegistry, depth: int = 0) -> ResolveResu
     # ─────────────────────────────────────────────────────────────────────────
     elif track == 3:
         extracted = extract_track3(condition)
+        enhance_extracted_kpi(condition, extracted)
 
         payload   = build_track3_payload(extracted)
         template  = call_template_engine(3, payload)
@@ -208,6 +224,7 @@ def resolve(condition: str, registry: VPRegistry, depth: int = 0) -> ResolveResu
     # ─────────────────────────────────────────────────────────────────────────
     elif track == 5:
         extracted = extract_track5(condition)
+        enhance_extracted_kpi(condition, extracted)
 
         payload   = build_track5_payload(extracted)
         template  = call_template_engine(5, payload)
@@ -227,6 +244,7 @@ def resolve(condition: str, registry: VPRegistry, depth: int = 0) -> ResolveResu
     # ─────────────────────────────────────────────────────────────────────────
     elif track == 6:
         extracted = extract_track6(condition)
+        enhance_extracted_kpi(condition, extracted)
 
         payload   = build_track6_payload(extracted)
         template  = call_template_engine(6, payload)

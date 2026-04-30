@@ -30,7 +30,6 @@ MODEL        = "openai/gpt-oss-120b"
 
 client = Groq(api_key=GROQ_API_KEY)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Pydantic Output Schemas
 # ─────────────────────────────────────────────────────────────────────────────
@@ -836,3 +835,96 @@ def extract_track6(condition: str) -> Track6Output:
         f"condition: {condition}",
         Track6Output
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KPI Enhancer
+# ─────────────────────────────────────────────────────────────────────────────
+
+KPI_ENHANCER_SYSTEM = """You are a KPI refinement agent for a telecom rule engine.
+
+You will receive:
+1. A natural language condition (the full user rule)
+2. An extracted KPI string that was pulled from that condition by an LLM
+
+Your job:
+- Read the full condition carefully.
+- Decide whether the extracted KPI is the best, most specific representation of what is being measured.
+- If the extracted KPI is too generic (e.g. "product", "subscriptions", "revenue") and the condition
+  gives enough context to make it more precise, produce a better KPI phrase.
+- If the extracted KPI is already precise and correct, return it as-is.
+
+Rules:
+1. The final KPI must be a short plain-English phrase (2-5 words max).
+2. Do NOT include time windows, operators, thresholds, or counts.
+3. Do NOT include aggregation words like "sum of", "total", "average".
+4. Focus only on WHAT is being measured, not HOW or WHEN.
+5. Never invent table or column names.
+6.strictly do not change the meaning of the full user rule.
+
+Respond ONLY in this JSON format, no extra text, no backticks, no markdown:
+{
+  "final_kpi": "<the best KPI phrase>",
+  "was_enhanced": <true|false>,
+  "reason": "<one short sentence>"
+}"""
+
+import json
+import time
+
+_ENHANCE_MAX_RETRIES = 3
+_ENHANCE_RETRY_DELAY = 2  # seconds
+
+def enhance_kpi(condition: str, extracted_kpi: str) -> str:
+    """
+    Fires one LLM call to optionally refine the extracted KPI.
+    Returns the enhanced KPI string, or the original if no enhancement needed/error.
+    """
+    if not extracted_kpi:
+        return extracted_kpi
+
+    user_prompt = f"condition: {condition}\nextracted_kpi: {extracted_kpi}"
+    
+    for attempt in range(1, _ENHANCE_MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": KPI_ENHANCER_SYSTEM},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                temperature=0,
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            result = json.loads(raw.strip())
+
+            final_kpi    = result.get("final_kpi", extracted_kpi)
+            was_enhanced = result.get("was_enhanced", False)
+            reason       = result.get("reason", "")
+
+            logger.info("final kpi extraction - '%s'", final_kpi)
+            if was_enhanced:
+                logger.info(
+                    "KPI enhanced: '%s' → '%s'  reason: %s",
+                    extracted_kpi, final_kpi, reason
+                )
+            return final_kpi
+
+        except Exception as exc:
+            err_str = str(exc)
+            if "looping content" in err_str.lower() or "loop detection" in err_str.lower():
+                logger.warning(
+                    "KPI enhancer: Groq loop-detection (attempt %d/%d). Retrying in %ds...",
+                    attempt, _ENHANCE_MAX_RETRIES, _ENHANCE_RETRY_DELAY,
+                )
+                time.sleep(_ENHANCE_RETRY_DELAY)
+            else:
+                logger.warning("KPI enhancer error (non-retryable): %s", exc)
+                return extracted_kpi
+
+    logger.warning("KPI enhancer: all retries failed. returning original.")
+    return extracted_kpi

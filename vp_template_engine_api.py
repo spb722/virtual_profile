@@ -1014,6 +1014,7 @@ def list_templates():
 
 
 @app.post("/resolve")
+
 def resolve(request: ResolveRequest):
     p = request.payload
 
@@ -1109,3 +1110,6 @@ def examples():
             }
         },
     }
+
+
+
